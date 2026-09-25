@@ -1,0 +1,30 @@
+load("@crates//:defs.bzl", "aliases", "all_crate_deps", "crate_edition")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_binary(
+    name = "swb",
+    srcs = ["src/main.rs"],
+    aliases = aliases(),
+    edition = crate_edition(),
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    deps = all_crate_deps(normal = True) + [
+        "//crates/swb-agentd:swb_agentd",
+        "//crates/swb-broker:swb_broker",
+        "//crates/swb-proto:swb_proto",
+        "//crates/swb-store:swb_store",
+    ],
+)
+
+rust_test(
+    name = "swb_test",
+    aliases = aliases(
+        normal_dev = True,
+        proc_macro_dev = True,
+    ),
+    crate = ":swb",
+    edition = crate_edition(),
+    proc_macro_deps = all_crate_deps(proc_macro_dev = True),
+    deps = all_crate_deps(normal_dev = True),
+)

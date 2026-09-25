@@ -1,0 +1,74 @@
+name: CI
+
+# Required check: `ci-ok` (ruleset on main, merge queue MERGE / one entry
+# built at a time / ALLGREEN). ADR-0001, SWB-R13:
+#
+# - Same-repository pull requests, merge_group and push to main run the full
+#   xoxd-ai/ci-templates rust-bazel-application lane on GloriousFlywheel
+#   private runners, and `ci-ok` aggregates it.
+# - Fork pull requests (for example Jesssullivan/agent-switchboard -> main)
+#   are GATED IN MERGE QUEUE. The template refuses fork pull requests on
+#   private runners (contract.py: "fork pull requests cannot receive private
+#   native runners"), and the estate forbids hosted runners. So on a fork pull
+#   request both jobs below are skipped, no runner is scheduled, and GitHub
+#   reports the skipped required `ci-ok` as passing. The full lane then runs
+#   on the merge_group event, where `ci-ok` must pass for the PR to land.
+#   `just check` (on sting or honey, never neo) is the pre-queue signal.
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  rust:
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    uses: xoxd-ai/ci-templates/.github/workflows/rust-bazel-application.yml@ae836d8400d5784d74af4fecc020f225d1c2d08e # v5.1.1
+    with:
+      enabled: true
+      runner_group: tinyland-infra
+      required_bazel_major: "9"
+      platform_matrix_json: >-
+        [{"name":"linux-x86_64","os":"linux","arch":"x86_64","runner_labels":["tinyland-nix","Linux","X64"],"bazel_platform":"//platforms:x86_64-unknown-linux-gnu"}]
+      rustfmt_targets_json: '["//:fmt"]'
+      clippy_targets_json: '["//:clippy"]'
+      build_targets_json: '["//:build"]'
+      unit_test_targets_json: '["//:unit_tests"]'
+      integration_test_targets_json: '["//:integration_tests"]'
+      package_targets_json: '["//deploy:swb_layer"]'
+      timeout_minutes: 60
+      max_parallel: 1
+
+  ci-ok:
+    name: ci-ok
+    needs: [rust]
+    if: >-
+      always()
+      && (github.event_name != 'pull_request'
+        || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: tinyland-nix
+    timeout-minutes: 5
+    steps:
+      - name: Aggregate the rust-bazel-application lane
+        shell: bash
+        env:
+          RUST_RESULT: ${{ needs.rust.result }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          echo "event=${EVENT_NAME} rust=${RUST_RESULT}"
+          if [[ "${RUST_RESULT}" != "success" ]]; then
+            echo "::error::rust-bazel-application lane result is ${RUST_RESULT}"
+            exit 1
+          fi
+          echo "ci-ok: rust-bazel-application lane passed"

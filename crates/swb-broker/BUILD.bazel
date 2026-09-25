@@ -1,0 +1,41 @@
+load("@crates//:defs.bzl", "aliases", "all_crate_deps", "crate_edition")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "swb_broker",
+    srcs = ["src/lib.rs"],
+    aliases = aliases(),
+    edition = crate_edition(),
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    deps = all_crate_deps(normal = True) + ["//crates/swb-proto:swb_proto"],
+)
+
+rust_test(
+    name = "swb_broker_test",
+    aliases = aliases(
+        normal_dev = True,
+        proc_macro_dev = True,
+    ),
+    crate = ":swb_broker",
+    edition = crate_edition(),
+    proc_macro_deps = all_crate_deps(proc_macro_dev = True),
+    deps = all_crate_deps(normal_dev = True),
+)
+
+# Cross-crate integration test (Cargo: tests/stamp.rs).
+rust_test(
+    name = "broker_integration_test",
+    srcs = ["tests/stamp.rs"],
+    aliases = aliases(
+        normal_dev = True,
+        proc_macro_dev = True,
+    ),
+    edition = crate_edition(),
+    proc_macro_deps = all_crate_deps(proc_macro_dev = True),
+    deps = all_crate_deps(normal_dev = True) + [
+        ":swb_broker",
+        "//crates/swb-proto:swb_proto",
+    ],
+)

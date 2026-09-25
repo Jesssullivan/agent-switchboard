@@ -1,0 +1,18 @@
+[package]
+name = "swb"
+description = "agent-switchboard: the single swb binary (serve | agentd | hook | whoami | inbox) - P1a stub."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "swb"
+path = "src/main.rs"
+
+[dependencies]
+swb-agentd = { path = "../swb-agentd" }
+swb-broker = { path = "../swb-broker" }
+swb-proto = { path = "../swb-proto" }
+swb-store = { path = "../swb-store" }
