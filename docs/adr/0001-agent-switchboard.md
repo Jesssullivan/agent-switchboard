@@ -16,7 +16,11 @@
   - TIN-4655 comment "R0: LGTM rulings interview" (`73f1ce72-28c5-42d6-9039-1135e1c92121`,
     2026-09-25T17:57Z), which reworded SWB-R02, added the rulings recorded
     as SWB-R25 to SWB-R32 in ADR-0002, and adopted the critique fixes folded
-    in below.
+    in below;
+  - TIN-4655 comment "Open rulings on ADR-0002 / agent-switchboard #4"
+    (`f870729e-dbcb-451d-97c3-0c1e1f8e9641`, 2026-09-25T19:11Z), which
+    answered ADR-0002's first four Open rulings, recorded there as SWB-R33
+    to SWB-R36 and applied below with dated notes.
 
 This ADR is the approved plan with every P0 ruling applied. Where a P0 ruling
 changed the draft, the text below states the ruled design and cites the
@@ -192,8 +196,11 @@ registered once on the tailnet so that new harness instances spawn nothing.
   - retention and access follow Loki's (7 days, SWB-R25);
   - senders must never put a secret in a body, and the broker does not
     redact. These lines never pass through the TIN-4668 collector
-    scrubber (stdout → Alloy → Loki); whether SWB-R19 accepts that or an
-    Alloy-side redaction stage is added is ADR-0002 → Open rulings 4;
+    scrubber (stdout → Alloy → Loki), so tinyland.dev's `loki.process`
+    stage for the broker namespace gets a redaction step with the same
+    pattern set as that scrubber (SWB-R34, 2026-09-25);
+    - *Superseded 2026-09-25:* "whether SWB-R19 accepts that or an
+      Alloy-side redaction stage is added is ADR-0002 → Open rulings 4";
   - bodies go only to Loki, "never into Tempo span attributes" (SWB-R26).
     Tempo truncates any attribute at 2048 bytes and the body cap is 16 KiB;
   - the route is broker stdout → Alloy `loki.source.kubernetes` →
@@ -207,10 +214,15 @@ registered once on the tailnet so that new harness instances spawn nothing.
     That decision comes before P1b (SWB-R27). Until then the audit line
     carries `size` and `body_hmac` only. The operator's answer to the
     shared read-ACL question is on TIN-4668 (`1001c0fb`, "A: tailnet ACL,
-    admins + MCP"); carrying it onto TIN-4655 as SWB-R27's decision, and
-    whether bodies wait for TIN-4670's enforcement or only for the
-    decision, are asked in ADR-0002 → Open rulings 1. The line schema and
-    the audit's reader scope are in [ADR-0002](0002-lgtm-plane.md).
+    admins + MCP"), and it is SWB-R27's decision (TIN-4655 `f870729e`).
+    Bodies ship only after TIN-4670 applies ACL A in
+    `Jesssullivan/tailnet-acl` and a raw Loki read from a non-admin
+    tailnet node is refused (SWB-R33, "Once ACL A is enforced live
+    (Recommended)"). The line schema and the audit's reader scope are in
+    [ADR-0002](0002-lgtm-plane.md).
+    - *Superseded 2026-09-25:* "carrying it onto TIN-4655 as SWB-R27's
+      decision, and whether bodies wait for TIN-4670's enforcement or only
+      for the decision, are asked in ADR-0002 → Open rulings 1."
 - **Failure behaviour (SWB-R10):** hooks time out after 2 s and always exit 0.
   The broker being down never blocks a harness.
 
@@ -269,7 +281,7 @@ registered once on the tailnet so that new harness instances spawn nothing.
     reworded), which leaves no other writer. Comment `73f1ce72` records no
     answer for that row, so this is **not** a ruling and is not listed as
     one anywhere; it is asked as its own ruling in ADR-0002 → Open rulings
-    5.
+    1 (numbered 5 before the 2026-09-25 amendment).
   - On neo and PZM `/nix` is an external volume, and a `/nix`-hosted
     LaunchDaemon on neo never started (dyld "file system sandbox blocked
     open()", lab `nix/darwin/modules/node-exporter-darwin.nix:14-33` at
@@ -440,8 +452,10 @@ Mimir series, the lookup recipes, the outbox and the L0–L5 phases — is
 
 ## Deltas from the R0 LGTM round (2026-09-25)
 
-Source: TIN-4655 comment `73f1ce72`. The new ruling IDs are recorded, with
-their quotes, in [ADR-0002 → Rulings](0002-lgtm-plane.md#rulings).
+Source: TIN-4655 comment `73f1ce72`, and for the rows marked SWB-R33 to
+SWB-R36 the amendment comment `f870729e` (2026-09-25T19:11Z). The new
+ruling IDs are recorded, with their quotes, in
+[ADR-0002 → Rulings](0002-lgtm-plane.md#rulings).
 
 | Area | P0 text | R0 design | Ruling |
 | --- | --- | --- | --- |
@@ -455,7 +469,7 @@ their quotes, in [ADR-0002 → Rulings](0002-lgtm-plane.md#rulings).
 | ADR revision | (none) | A Fable lane revises ADR-0001 and adds ADR-0002 with every critique fix; Opus refutes; PR through the fork | SWB-R30 |
 | Harness-native telemetry | Out of scope | L5: all on, full content, scrubbed at the collector | SWB-R31 |
 | Telemetry ingest | (none) | A tailnet OTLP/HTTP endpoint on the existing collector, requested as TIN-4668; lab exporters gated off until **the scrubbed endpoint** (`otlp-harness-http-tailscale`, 4318 → 14318) exists, and never pointed at the retained `otlp-observability-http:4318` (`1001c0fb`) | SWB-R32 |
-| agentd | Tiny on neo | Never emits OTLP anywhere; census only; `/nix` exec proof before P2 exits | Design constraint, not ruled (ADR-0002 → Open rulings 5); the `/nix` proof is a critique fix |
+| agentd | Tiny on neo | Never emits OTLP anywhere; census only; `/nix` exec proof before P2 exits | Design constraint, not ruled (ADR-0002 → Open rulings 1, formerly 5); the `/nix` proof is a critique fix |
 | Codex identity | `notify` hook | `swb whoami`; `notify` stays runtime-owned; no new table | Critique fix (R0 ruling 3) |
 | Claude/Kimi enrollment | (unstated) | registry → export-registries → `tinyland.mcp` → `~/.claude.json` | Critique fix |
 | Claude hooks | (unstated priority) | Merged at `mkDefault`, with a contract test that the three fail-closed guards survive | Critique fix |
@@ -464,6 +478,10 @@ their quotes, in [ADR-0002 → Rulings](0002-lgtm-plane.md#rulings).
 | Lifecycle spans | (n/a) | Each lifecycle step is its own trace, linked back to the send span | Critique fix |
 | Thread enumeration | (n/a) | Broker-only | Critique fix |
 | Citations | (n/a) | tinyland.dev re-pinned to main `68a16f65` | Critique fix |
+| Bodies, gate (amendment) | Out of stdout until the body-read ACL is decided | The TIN-4668 answer "A: tailnet ACL, admins + MCP" is SWB-R27's decision; bodies ship only once TIN-4670 has applied ACL A and a raw Loki read from a non-admin tailnet node is refused | SWB-R33 |
+| Bodies, redaction (amendment) | The broker does not redact; no scrubber on the stdout path | A redaction step in the broker namespace's `loki.process` stage, with the TIN-4668 collector scrubber's pattern set | SWB-R34 |
+| Harness telemetry in Tempo (amendment) | (unstated; content kept in Loki by design) | Tempo is the harness recency index: tool names, file paths and ticket IDs as span attributes; bodies and full content stay in Loki | SWB-R35 |
+| L5 timing (amendment) | Last, after P4 (the adopted order) | Independent of P4; starts once the scrubbed endpoint, the scrubber and the enforced ACL all exist | SWB-R36 |
 
 ## Phases
 
@@ -472,7 +490,10 @@ Each phase's exit is checked before the next starts. Every phase writes a
 
 *Re-sequenced 2026-09-25 (SWB-R28):* "The LGTM steps L0–L5 are interleaved
 with the broker phases." The order is R0 → P1a → L0 → the SWB-R27 decision
-→ P1b → L1 → L2 → P2 → L3 → P3 → L4 → P4 → L5. The L phases are specified
+→ P1b → L1 → L2 → P2 → L3 → P3 → L4 → P4, and L5 is off that sequence: it
+is independent of P4 and starts once its three gates hold (SWB-R36).
+*Superseded 2026-09-25 (SWB-R36):* the order ended "… → L4 → P4 → L5".
+The L phases are specified
 in [ADR-0002](0002-lgtm-plane.md); this list keeps the P phases and names
 the L phase between each pair. L0 comes after P1a in the sequence, and its
 only technical gate is the canary (SWB-R29); P1b depends on P1a's exit and
@@ -499,15 +520,24 @@ P4, with the scrape job, dashboard and alert drill bundled into P3.
 - **L0: read plane in lab.** After P1a in sequence; the canary (SWB-R29)
   is its only technical gate. Scope and exit: ADR-0002.
 - **SWB-R27 decision.** Before P1b: the body-read ACL audit, as a dated
-  TIN-4655 comment. Its scope is in ADR-0002 → Risks and Open rulings.
+  TIN-4655 comment. Its scope is in ADR-0002 → Risks and L1.
+  - *Done 2026-09-25:* TIN-4655 comment `f870729e` carries the TIN-4668
+    answer "A: tailnet ACL, admins + MCP" as SWB-R27's decision. Bodies
+    still wait for ACL A to be enforced live (SWB-R33); that gate is L1's,
+    not P1b's.
+  - *Superseded 2026-09-25:* "Its scope is in ADR-0002 → Risks and Open
+    rulings."
 - **P1b: broker MVP.** Repos: this one, blahaj (the
   `tofu/stacks/agent-switchboard` stack and a `tailnet-dns` alias) and lab.
   - The broker ships `register`, `peers`, `send`, `inbox` and `ack`, stamps
     `authority: peer`, validates envelope v3, serves `/metrics`, writes the
-    audit stream to stdout after commit — without bodies until SWB-R27 is
-    decided (SWB-R19, SWB-R27) — and runs on SQLite on a PVC. The
+    audit stream to stdout after commit — without bodies until ACL A is
+    enforced live (SWB-R19, SWB-R27, SWB-R33) — and runs on SQLite on a
+    PVC. The
     transactional outbox and the Tempo projector land in L2 (ADR-0002).
     - *Superseded (P0):* "writes the audit stream with bodies (SWB-R19)".
+    - *Superseded 2026-09-25 (SWB-R33):* "without bodies until SWB-R27 is
+      decided".
     - *Superseded (refutation, 2026-09-25):* "with the transactional
       outbox (ADR-0002)" in P1b; ADR-0002 scopes the outbox to L2.
   - Lab adds the `agents` entry to `vars/mcp_registry.yml` for claude_code,
@@ -529,7 +559,8 @@ P4, with the scrape job, dashboard and alert drill bundled into P3.
     and the ADR-0002 lookup recipes with their caveats.
   - *Proposed, not ruled:* the Pi `agents` profile (SWB-R18) lands here,
     beside the registry entries, through lab's `pi_mcp_profile_policy`
-    (its phase is ADR-0002 → Open rulings 6; it is placed once, here).
+    (its phase is ADR-0002 → Open rulings 2, formerly 6; it is placed
+    once, here).
   - Exit, all must hold:
     - Codex registration is evidenced: a Codex session on sting registers
       with an `agent_id` whose `pid` and `session_id` are its own, and the
@@ -574,7 +605,7 @@ P4, with the scrape job, dashboard and alert drill bundled into P3.
       wakeups per minute (critique fix: "recorded" alone had no
       threshold). The numbers are proposals with an owner (lab) and a
       deadline (the P2 plan comment, before the drill), confirmed or
-      replaced there (ADR-0002 → Open rulings 13); PZM is measured against
+      replaced there (ADR-0002 → Open rulings 9, formerly 13); PZM is measured against
       the same numbers.
 - **L3: presence and graph metrics, dashboard, alert.** After P2. ADR-0002.
 - **P3: Junie and census.**
@@ -598,16 +629,23 @@ P4, with the scrape job, dashboard and alert drill bundled into P3.
   - *Superseded (draft of this revision, 2026-09-25):* a P4 heading
     "Pi profile, Codex registration and push" that carried the Pi profile
     a second time; the Pi profile is placed once, in P1b as proposed.
-- **L5: harness-native telemetry.** Gated on the scrubbed TIN-4668
-  endpoint, its scrubber and the SWB-R27 decision (ruling 4; SWB-R31,
-  SWB-R32). Whether it also waits for P4, as the adopted L0–L5 order
-  implies, is ADR-0002 → Open rulings 3. ADR-0002.
+- **L5: harness-native telemetry.** Independent of P4; it starts once its
+  three gates hold — the TIN-4668 scrubbed endpoint, its scrubber and the
+  enforced ACL (ACL A applied by TIN-4670) — whatever P phase is current
+  (SWB-R31, SWB-R32, SWB-R36). Tempo carries tool names, file paths and
+  ticket IDs as span attributes; bodies and full content stay in Loki
+  (SWB-R35). ADR-0002.
+  - *Superseded 2026-09-25 (SWB-R36):* "Gated on the scrubbed TIN-4668
+    endpoint, its scrubber and the SWB-R27 decision (ruling 4; SWB-R31,
+    SWB-R32). Whether it also waits for P4, as the adopted L0–L5 order
+    implies, is ADR-0002 → Open rulings 3."
 
 ## Rulings
 
 Quotes are the operator's words or picks as recorded in the cited source.
 Operator questions and asides are not rulings (R-N13). The R0 LGTM-round
-rulings, SWB-R25 to SWB-R32, are recorded in
+rulings, SWB-R25 to SWB-R32, and their amendment round, SWB-R33 to SWB-R36
+(TIN-4655 `f870729e`), are recorded in
 [ADR-0002 → Rulings](0002-lgtm-plane.md#rulings) with the same discipline;
 SWB-R22 to SWB-R24 are the P1a substrate rulings carried by the P1a
 receipts (TIN-4655 comments `6274ecbd` and `fd195b08`) and their PRs.
@@ -630,9 +668,9 @@ receipts (TIN-4655 comments `6274ecbd` and `fd195b08`) and their PRs.
 | SWB-R14 | 2026-09-25 | TIN-4655 comment `643df6af` (P0 round two) | Authority: "Operator-directed flag with a ruling link". The broker still stamps `authority: peer`. |
 | SWB-R15 | 2026-09-25 | same | Linear: "Read + comment". Read title, state and assignee; post handoff receipts as comments. Never move state or edit descriptions. |
 | SWB-R16 | 2026-09-25 | same | Claims: "Optional exclusive, off by default". A second exclusive claim returns `held_by` and does not record. |
-| SWB-R17 | 2026-09-25 | same | "Push adapter on neo too". Tiny: long-poll, at most one notice per 60 s, no bodies. (The agentd-never-emits-OTLP constraint in Push is design, not part of this ruling; ADR-0002 → Open rulings 5.) |
+| SWB-R17 | 2026-09-25 | same | "Push adapter on neo too". Tiny: long-poll, at most one notice per 60 s, no bodies. (The agentd-never-emits-OTLP constraint in Push is design, not part of this ruling; ADR-0002 → Open rulings 1, formerly 5.) |
 | SWB-R18 | 2026-09-25 | same | "Pi profile in v1". An `agents` Pi MCP profile, changing Pi's zero-MCP default for that profile only. |
-| SWB-R19 | 2026-09-25 | same | "Message bodies in Loki". Retention and access follow Loki's. *Additions 2026-09-25 (SWB-R26, SWB-R27):* never Tempo attributes; stdout → Alloy with a `loki.process` stage; out of stdout until the body-read ACL is decided, before P1b. |
+| SWB-R19 | 2026-09-25 | same | "Message bodies in Loki". Retention and access follow Loki's. *Additions 2026-09-25 (SWB-R26, SWB-R27):* never Tempo attributes; stdout → Alloy with a `loki.process` stage; out of stdout until the body-read ACL is decided, before P1b. *Additions 2026-09-25 (SWB-R33, SWB-R34):* bodies ship only once ACL A is enforced live; the `loki.process` stage gets a redaction step with the TIN-4668 scrubber's pattern set. |
 | SWB-R20 | 2026-09-25 | same | Unchanged: Codex push waits for a recorded live-thread proof. |
 | SWB-R21 | 2026-09-25 | Operator interview, relayed to the P1a lane by the orchestrating session; durable carrier: the P1a receipt comment on TIN-4655 | "Yes, start P1a now." |
 

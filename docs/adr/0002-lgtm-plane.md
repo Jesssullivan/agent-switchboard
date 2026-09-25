@@ -7,10 +7,14 @@
   [Refutation review](#refutation-review-2026-09-25). Design choices below
   that no ruling names — the outbox plus the gauge, the numeric bounds, the
   reconciliation cadence, the keyed body hash — are proposals, not rulings.
-  No L phase has started.
+  No L phase has started. *Amended 2026-09-25 (a second commit on the same
+  PR):* the operator answered the first four Open rulings (TIN-4655 comment
+  `f870729e`), recorded as SWB-R33 to SWB-R36 in [Rulings](#rulings); the
+  remaining open items are renumbered 1–9.
 - **Date:** 2026-09-25
 - **Linear:** TIN-4655 (R0 comment `73f1ce72-28c5-42d6-9039-1135e1c92121`,
-  2026-09-25T17:57Z; premise correction `26a311db`, 18:19Z); TIN-4668 (the
+  2026-09-25T17:57Z; premise correction `26a311db`, 18:19Z; answers to Open
+  rulings 1–4 `f870729e-dbcb-451d-97c3-0c1e1f8e9641`, 19:11Z); TIN-4668 (the
   tailnet OTLP ingest request; comments `875fc21f` step-0 evidence and
   probes, `1001c0fb` repo, read-ACL and open-path rulings, `a9701697` the
   tinyland.dev-PR answer, `605d0cc7` the ACL repo); TIN-4670 (closing the
@@ -36,7 +40,11 @@
     "ship-with-fixes", 23 problems and 7 ruling-fidelity findings), handled
     in [Refutation review](#refutation-review-2026-09-25);
   - the operator's later 2026-09-25 statements on TIN-4655 (`26a311db`) and
-    TIN-4668 (`1001c0fb`, `a9701697`, `605d0cc7`), quoted where cited.
+    TIN-4668 (`1001c0fb`, `a9701697`, `605d0cc7`), quoted where cited;
+  - the operator's answers to this ADR's first four Open rulings, TIN-4655
+    comment `f870729e` (2026-09-25T19:11Z, "Open rulings on ADR-0002 /
+    agent-switchboard #4"), quoted in [Rulings](#rulings) as SWB-R33 to
+    SWB-R36.
 - **Pinned evidence.** Estate facts below cite a file and line range at a
   pinned commit, or a tool call made by a research lane on 2026-09-25:
   - `tinyland.dev@68a16f65` = `xoxd-ai/tinyland.dev` `main` at
@@ -80,7 +88,10 @@ path (SWB-R02, reworded).
   /api/datasources/proxy/uid/tempo/api/status/buildinfo` → v2.7.2;
   `list_prometheus_metric_names` regex `^traces_.*` → none).
 - **The collector's OTLP receivers are on the tailnet today, unscrubbed.**
-  In-cluster they are `otel-collector.tinyland-staging.svc:4317/4318`; on
+  The collector is owned by `xoxd-ai/tinyland.dev`
+  (`infra/staging/otel-collector.yaml`), not blahaj (TIN-4655 comment
+  `26a311db`); blahaj owns only the retained tailnet Services in front of
+  it. In-cluster they are `otel-collector.tinyland-staging.svc:4317/4318`; on
   the tailnet blahaj's retained Services expose the same collector as
   `otlp-observability-grpc:4317` and `otlp-observability-http:4318`
   (`blahaj@2071613c deploy/honey/retained-observability-tailnet-services.yaml:58-102`),
@@ -95,8 +106,9 @@ path (SWB-R02, reworded).
   (TIN-4668 comment `875fc21f`). The R0 comment's premise that "the OTel
   collector is in-cluster only, and the tailnet exposes only Tempo's query
   port 3200" is out of date; the operator's dated correction is TIN-4655
-  comment `26a311db`. Closing that path is TIN-4670 (operator: "Ticket it,
-  fix with the build", TIN-4668 comment `1001c0fb`). The registry rule is
+  comment `26a311db`. The unscrubbed tailnet 4318 (and 4317) is ticketed as
+  TIN-4670, which closes it (operator: "Ticket it, fix with the build",
+  TIN-4668 comment `1001c0fb`). The registry rule is
   unchanged: the collector is the only ingest authority, "Do not send OTLP
   directly to Tempo" (`registry.md:350-352`).
 - **Tempo limits** at 2.7.2 defaults, not overridden in staging:
@@ -172,7 +184,8 @@ path (SWB-R02, reworded).
   three times against `100.74.127.80:3000` (tool calls
   `list_prometheus_metric_names` and two `query_prometheus`, "net/http:
   timeout awaiting response headers").
-- **The OTel collector** (contrib 0.118.0, one replica on honey) receives
+- **The OTel collector** (contrib 0.118.0, one replica on honey; owned by
+  `xoxd-ai/tinyland.dev`, `infra/staging/otel-collector.yaml`) receives
   OTLP gRPC 4317 and HTTP 4318, upserts `k8s.cluster.name=honey` and
   `service.namespace=tinyland-staging` on every span and metric, and has
   traces and metrics pipelines only; its queue is in memory
@@ -199,9 +212,13 @@ path (SWB-R02, reworded).
   "A: tailnet ACL, admins + MCP" — raw Loki 3100 and Tempo 3200 limited to
   `group:dollhouse-admins` and `tag:mcp-proxy`, Grafana as the single human
   surface with its user list audited (TIN-4668 comment `1001c0fb`, tracked
-  on TIN-4670; the change lands in the public Dhall ACL repo, `605d0cc7`).
-  It is decided, not applied: nothing has changed live, and TIN-4670 is
-  `Backlog`.
+  on TIN-4670; the change lands in the public Dhall ACL repo
+  `Jesssullivan/tailnet-acl`: "actl is in public dhall acl repo",
+  `605d0cc7`). It is decided, not applied: nothing has changed live, and
+  TIN-4670 is `Backlog`. *Added 2026-09-25 (SWB-R33, `f870729e`):* that
+  answer is SWB-R27's decision, and `swb` bodies ship only after TIN-4670
+  applies ACL A in `Jesssullivan/tailnet-acl` and a raw Loki read from a
+  non-admin tailnet node is refused.
 - **The contract.** blahaj admits one LGTM release, owned by tinyland.dev,
   `acceptance_state: migration_blocked`, `retention_days` 7 for logs,
   metrics, profiles and traces, and forbids an `alternate-lgtm-mcp` and a
@@ -223,8 +240,9 @@ path (SWB-R02, reworded).
   src/native_tracing.rs:23-31`). Its spans reach Tempo relabelled as
   `honey`/`tinyland-staging`, which is the live evidence that the retained
   tailnet OTLP path is in use today (`875fc21f`).
-- **TIN-4668 in flight.** A tinyland.dev PR on branch
-  `feat/tin-4668-otlp-tailnet-ingest` is being built (operator:
+- **TIN-4668 in flight.** A PR in `xoxd-ai/tinyland.dev`, the collector's
+  owner, on branch `feat/tin-4668-otlp-tailnet-ingest` is being built by
+  the blahaj seat (operator:
   "tinyland.dev PR (Recommended)", `1001c0fb`; "tinyland.dev PR, and flag
   the open 4318 (Recommended)", `a9701697`): a separate `otlp/tailnet`
   HTTP receiver on 14318, pipelines `traces/tailnet` and `logs/tailnet`,
@@ -233,7 +251,8 @@ path (SWB-R02, reworded).
   `otlp-harness-http-tailscale` with port 4318 → target 14318 (`875fc21f`).
   It "also enforces TIN-4655 R0 ruling 2 (no bodies in Tempo span
   attributes) on `traces/tailnet`" (`1001c0fb`), which means harness
-  content on that path lands in Loki, not Tempo. Nothing is deployed, and
+  content on that path lands in Loki, not Tempo; SWB-R35 (2026-09-25) now
+  rules that scope for harness telemetry. Nothing is deployed, and
   it merges only on the operator's word.
 
 ### Why LGTM cannot be the system of record
@@ -282,11 +301,18 @@ path (SWB-R02, reworded).
    row — and is listed under [Open rulings](#open-rulings) for ratification.
 4. **LGTM is the read, query and context plane**: history, threads by
    message, peers as corroboration, graphs and dashboards, and (L5)
-   harness-native telemetry.
+   harness-native telemetry. For harness telemetry Tempo is the recency
+   index: tool calls, referenced files and paths and recently accessed
+   tickets as span attributes, so an agent orienting to a workstream does
+   not re-mine Loki; bodies and full content stay in Loki (SWB-R35).
 5. **Hooks never touch LGTM.** The 2 s / exit 0 rule (SWB-R10) is unchanged,
    and the projection cannot delay a send.
 6. **Bodies live in Loki only** (SWB-R19, SWB-R26), gated by the body-read
-   ACL decision (SWB-R27). Tempo carries hashes and sizes.
+   ACL decision (SWB-R27) and shipped only once that decision, ACL A, is
+   enforced live (SWB-R33); they pass a redaction step in the broker
+   namespace's `loki.process` stage (SWB-R34). Tempo carries hashes and
+   sizes. *Superseded 2026-09-25:* "gated by the body-read ACL decision
+   (SWB-R27)" alone.
 7. **A reader of LGTM sorts by `swb.seq`** and treats absence as "expired
    from the view (7 d) or not projected", never as "never sent".
 
@@ -295,15 +321,15 @@ path (SWB-R02, reworded).
 | Component | Role | Owner (change lands in) | Sequencer |
 | --- | --- | --- | --- |
 | `swb` broker (blahaj pod, Tailscale Service `mcp-agents`) | System of record; the only OTLP and stdout-audit writer; outbox and reconciliation | `xoxd-ai/agent-switchboard` (code), `xoxd-ai/blahaj` (pod, tofu stack, `tailnet-dns`, Linear leaf) | blahaj |
-| Tempo | Dialog skeleton: one short trace per message and per lifecycle event, claims and sessions; hashes, never bodies | `xoxd-ai/tinyland.dev` owner release (NetworkPolicy grant, L4 upgrade) | blahaj |
-| Loki | Bodies and audit lines from broker stdout via Alloy | tinyland.dev owner release (Alloy allowlist, `loki.process` stage) | blahaj |
+| Tempo | Dialog skeleton: one short trace per message and per lifecycle event, claims and sessions; hashes, never bodies. L5: the harness recency index — tool names, file paths and ticket IDs as span attributes, never bodies (SWB-R35) | `xoxd-ai/tinyland.dev` owner release (NetworkPolicy grant, L4 upgrade) | blahaj |
+| Loki | Bodies and audit lines from broker stdout via Alloy, redacted in `loki.process` (SWB-R34); L5 harness content through `logs/tailnet` | tinyland.dev owner release (Alloy allowlist, `loki.process` stage with its redaction step) | blahaj |
 | Mimir / staging Prometheus | Presence gauges, edge counters, projection health, one static scrape job | tinyland.dev owner release | blahaj |
 | prometheus-mail | Paging alerts, fed by a federation match | `xoxd-ai/blahaj` | blahaj |
 | Grafana dashboards | File-provisioned `swb` dashboard | tinyland.dev owner release (ConfigMap) | blahaj |
 | Grafana MCP (`grafana-tailnet`) | The read surface for Claude Code, Codex, OpenCode, Kimi; Junie only in the `ops` group | `xoxd-ai/lab` (`nix/packages/mcp-grafana.nix`, `nix/modules/grafana-proxy.nix`) | lab |
 | Enrollment, hooks, skill, agentd, mcp-mux, Pi profile | Home Manager delivery | `xoxd-ai/lab` | lab |
 | Tailnet grants (read ACL A on Loki 3100 and Tempo 3200, honey to canonical Grafana) | ACL | `Jesssullivan/tailnet-acl` (public Dhall repo, `605d0cc7`; TIN-4670) | operator |
-| Tailnet OTLP/HTTP ingest with scrubbing and a logs pipeline (L5): Service `otlp-harness-http-tailscale`, port 4318 → target 14318, receiver `otlp/tailnet` | Harness telemetry ingest | tinyland.dev owner release, requested as TIN-4668 (branch `feat/tin-4668-otlp-tailnet-ingest`) | blahaj |
+| Tailnet OTLP/HTTP ingest with scrubbing and a logs pipeline (L5): Service `otlp-harness-http-tailscale`, port 4318 → target 14318, receiver `otlp/tailnet` | Harness telemetry ingest | tinyland.dev owner release (the collector is tinyland.dev's), requested as TIN-4668 (branch `feat/tin-4668-otlp-tailnet-ingest`, being built by the blahaj seat) | blahaj |
 | Retiring or repointing the retained `otlp-observability-{grpc,http}` 4317/4318 Services | Closing the unscrubbed path | `xoxd-ai/blahaj`, TIN-4670, after the scrubbed endpoint deploys; retire or repoint is the operator's pick at that point | blahaj |
 
 lab and this repo request tinyland.dev changes by ticket and never add a
@@ -408,6 +434,34 @@ Optional harness link (L5): when `swb send` runs from a Claude Code Bash
 tool with enhanced telemetry on, the CLI reads `TRACEPARENT` and the send
 span links to the harness tool span. The broker never parents harness spans.
 
+#### Harness span attributes (L5, SWB-R35)
+
+Ruled 2026-09-25 (SWB-R35, TIN-4655 comment `f870729e`): for harness-native
+telemetry, Tempo is the recency index — "recency == relacence", in the
+operator's words — so an agent orienting to a workstream, sprint, epic or
+codebase asks Tempo what was touched recently instead of re-mining Loki.
+Harness spans on `traces/tailnet` therefore carry, as span attributes:
+
+| Carried | Never carried |
+| --- | --- |
+| the tool name of each tool call | prompts |
+| the file paths and other paths a tool call referenced | tool input and tool output |
+| the ticket IDs (`TIN-####`) a session accessed | assistant responses and raw API bodies |
+
+- Bodies and full content stay in Loki, through `logs/tailnet` (SWB-R31's
+  "Full content, scrubbed at the collector" is unchanged; only its store is
+  Loki). This also fits Tempo's 2048-byte attribute cap
+  (`configuration/_index.md:240` at `v2.7.2`): a path or an ID fits, a
+  body does not.
+- The exact attribute keys, and whether a harness emits a path or ticket ID
+  natively or the collector derives it from an event, are fixed in the L5
+  plan comment against what each harness actually emits and what the
+  TIN-4668 `traces/tailnet` key allowlist admits. That is a proposal; the
+  ruled part is the content split above. A derived attribute holds the path
+  or the ID, never the input it was derived from.
+- The scrubber runs on these attributes too (L5 exit): a path can itself
+  contain a secret-shaped string.
+
 Dedicated Parquet columns (L4, tinyland.dev): `swb.thread_id`,
 `swb.msg_id`, `swb.from`, `swb.to`, `swb.ticket`, `swb.subject` as string
 columns. vParquet4 allows up to 10 string columns per scope and no integer
@@ -429,16 +483,19 @@ One JSON line per mutation on broker stdout:
 
 - `op` ∈ {`send`, `notify`, `fetch`, `ack`, `expire`, `register`, `ended`,
   `claim`, `release`, `handoff`, `reconcile`}.
-- `body` is present only on `send`, only once SWB-R27 is decided, at most
-  16 KiB (Loki `max_line_size` 256 KB). Until then `size` and `body_hmac`
-  (the same keyed hash as the span attribute) stand in for it. The broker
-  does not redact; senders never put a secret in a body (SWB-R19). **These
-  lines bypass every scrubber:** they go stdout → Alloy → Loki and never
-  through the TIN-4668 redaction processor, so under SWB-R31's
-  scrub-at-the-collector posture `swb` bodies are the one full-content path
-  into Loki with no redaction stage. Whether SWB-R19 accepts that, or an
-  Alloy-side redaction stage is added, is an open ruling
-  ([Open rulings](#open-rulings) 4), not decided here.
+- `body` is present only on `send`, only once ACL A is enforced live
+  (SWB-R33: TIN-4670 has applied it in `Jesssullivan/tailnet-acl` and a raw
+  Loki read from a non-admin tailnet node is refused), at most 16 KiB (Loki
+  `max_line_size` 256 KB). Until then `size` and `body_hmac` (the same
+  keyed hash as the span attribute) stand in for it. The broker does not
+  redact; senders never put a secret in a body (SWB-R19). These lines go
+  stdout → Alloy → Loki and never through the TIN-4668 collector redaction
+  processor, so the redaction happens in Alloy instead: the broker
+  namespace's `loki.process` stage gets a redaction step with the same
+  pattern set as the TIN-4668 collector scrubber (SWB-R34). *Superseded
+  2026-09-25:* "only once SWB-R27 is decided", and "Whether SWB-R19
+  accepts that, or an Alloy-side redaction stage is added, is an open
+  ruling (Open rulings 4), not decided here."
 - **Stream labels** (low cardinality only): `service_name="swb"`, `op`,
   plus the pod labels the existing `discovery.relabel "pod_logs"` block sets.
   **Structured metadata**: `msg_id`, `thread_id`, `trace_id`, `span_id`,
@@ -451,6 +508,9 @@ One JSON line per mutation on broker stdout:
 
   ```river
   loki.process "swb" {
+    // SWB-R34: redaction first, one stage per TIN-4668 scrubber pattern,
+    // so the whole line (body included) is redacted before extraction.
+    stage.replace { expression = "<TIN-4668 pattern>"  replace = "<redacted>" }
     stage.json { expressions = { op = "op", msg_id = "msg_id", thread_id = "thread_id",
                                  trace_id = "trace_id", span_id = "span_id",
                                  from = "from", to = "to", ticket = "ticket" } }
@@ -463,7 +523,9 @@ One JSON line per mutation on broker stdout:
   ```
 
   routed by a namespace `keep` in `discovery.relabel`, so the generic stage
-  does not also handle these lines. The owner release writes the real block.
+  does not also handle these lines. The owner release writes the real block,
+  and its redaction patterns are the TIN-4668 collector scrubber's set,
+  kept in step with it (SWB-R34).
 - Retention is Loki's 168h (SWB-R25). The Grafana Tempo datasource opens a
   span's Loki lines by `trace_id` with no new Grafana work
   (`monitoring.yaml:1869-1871`).
@@ -529,6 +591,7 @@ Tempo `main`.
 | Delivery corroboration | `{ resource.service.name = "swb-broker" && span.swb.msg_id = "<id>" && name = "swb.ack" }` | Ack truth is the broker's |
 | Claims and handoffs on a ticket | `{ resource.service.name = "swb-broker" && span.swb.subject = "TIN-4655" && (name = "swb.claim" \|\| name = "swb.handoff") }` | Truth is `claims` |
 | Who was active recently (corroboration) | `list_tempo_attribute_values("span.swb.from", q = {resource.service.name = "swb-broker"}, start, end)` | Observed-recently; no lease semantics. Truth is `peers` |
+| Recently touched files, paths or tickets in a workstream (L5, SWB-R35) | `list_tempo_attribute_values("span.<path or ticket key>", q = {resource.service.name =~ "<harness services>"}, start, end)`, or a search on the ticket key with `select` of the path and tool-name keys | The recency index; the keys are fixed in the L5 plan. Opens the matching Loki content by `trace_id` only when the body is needed |
 
 Readers never use structural operators or trace duration on `swb` traces,
 and never take a search count as a count (Tempo dedupes only in
@@ -712,7 +775,7 @@ Corrected against `lab@3d755193` (critique fixes adopted under R0 ruling 3):
   rsync plus `just check` on sting) and covers this repo only. So the lab
   tests run on sting or honey by hand from a checkout there, and the
   receipt says which host ran them, until lab names a remote lane
-  ([Open rulings](#open-rulings) 12).
+  ([Open rulings](#open-rulings) 8).
 - **Delivery is per host and verified.** neo: the generation is produced on
   the bounded remote producer and activated through the signed-closure
   path, never compiled locally. PZM: `just nix-switch petting-zoo-mini` onto
@@ -726,7 +789,10 @@ Corrected against `lab@3d755193` (critique fixes adopted under R0 ruling 3):
 
 Ruled 2026-09-25 (SWB-R31, SWB-R32): "all on, all being shipped"; "Full
 content, scrubbed at the collector"; ingest "Request it from
-tinyland.dev/blahaj", filed as TIN-4668.
+tinyland.dev/blahaj", filed as TIN-4668. Amended the same day (`f870729e`):
+Tempo is the harness recency index and content stays in Loki (SWB-R35),
+and L5 is independent of P4 and starts once its three gates hold
+(SWB-R36).
 
 - **What ships.** Claude Code and Kimi first: `CLAUDE_CODE_ENABLE_TELEMETRY=1`,
   `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1`, metrics, log events and traces
@@ -754,8 +820,11 @@ tinyland.dev/blahaj", filed as TIN-4668.
   **the scrubbed endpoint** exists — the TIN-4668 Service
   `otlp-harness-http-tailscale` (port 4318 → target 14318, receiver
   `otlp/tailnet`, `875fc21f`) — with its redaction processor and its logs
-  pipeline, and until the body-read ACL (SWB-R27) is decided, which "gates
-  it too". "Until that endpoint exists" does **not** mean any 4318: the
+  pipeline, and until the body-read ACL (SWB-R27), which "gates it too", is
+  enforced: SWB-R36 names L5's third gate "the enforced ACL", so ACL A
+  applied by TIN-4670, the same bar SWB-R33 sets for `swb` bodies.
+  *Superseded 2026-09-25:* "until the body-read ACL (SWB-R27) is decided".
+  "Until that endpoint exists" does **not** mean any 4318: the
   retained `otlp-observability-http:4318` exists today and bypasses the
   scrubber, and the operator's word is that lab keeps "the harness
   exporters gated off, and never to point them at the old
@@ -779,10 +848,14 @@ tinyland.dev/blahaj", filed as TIN-4668.
   need a key allowlist"). Under this ADR the content store for L5 is
   therefore **Loki, through `logs/tailnet`** (Claude Code's log events and
   Codex's `codex.user_prompt` events), and Tempo carries the harness trace
-  skeleton. Whether ruling 2's Tempo ban was meant to cover harness content
-  as well as `swb` bodies is not decided here ([Open rulings](#open-rulings)
-  2); the ADR and the collector build agree either way, because both put
-  content in Loki.
+  skeleton plus the recency attributes — tool names, file paths, ticket IDs
+  — and never a body ([Harness span attributes](#harness-span-attributes-l5-swb-r35);
+  SWB-R35). *Superseded 2026-09-25 (SWB-R35):* "Whether ruling 2's Tempo
+  ban was meant to cover harness content as well as `swb` bodies is not
+  decided here (Open rulings 2); the ADR and the collector build agree
+  either way, because both put content in Loki." The operator's answer
+  keeps content out of Tempo and gives Tempo a positive role as the
+  recency index.
 - **Resource attributes** stay host, harness and seat as sent; the
   collector's `k8s.cluster.name` / `service.namespace` upsert must not
   relabel host telemetry (observed on softconnectd spans), which TIN-4668
@@ -794,11 +867,15 @@ tinyland.dev/blahaj", filed as TIN-4668.
 ### Phases L0–L5
 
 Interleaved with the P phases as R0 → P1a → L0 → the SWB-R27 decision →
-P1b → L1 → L2 → P2 → L3 → P3 → L4 → P4 → L5 (SWB-R28, adopting the plan's
-order). L5's own gates are the three ruling 4 names — the scrubbed
-endpoint, its scrubber and the body-read ACL decision — and whether L5 must
-also wait for P4 (Codex's live-thread proof) is an open question the
-operator answers, not this ADR ([Open rulings](#open-rulings) 3). Each L
+P1b → L1 → L2 → P2 → L3 → P3 → L4 → P4 (SWB-R28, adopting the plan's
+order), with **L5 off that sequence**: it is independent of P4 and starts
+once its three gates hold — the TIN-4668 scrubbed endpoint, its scrubber
+and the enforced ACL (SWB-R36). The SWB-R27 decision is recorded (ACL A,
+SWB-R33); the step stays in the order as the point before P1b where it had
+to exist. *Superseded 2026-09-25 (SWB-R36):* the order ended "… → L4 → P4
+→ L5", and "whether L5 must also wait for P4 (Codex's live-thread proof)
+is an open question the operator answers, not this ADR (Open rulings 3)".
+Each L
 phase writes a `docs/agent-notes/` entry and a dated TIN-4655 comment
 (R-N13). Every exit below is observable: a query, an HTTP status, a file, a
 series, a receipt. **Every drill that stops, restarts or scales a process
@@ -861,15 +938,27 @@ any host); the agent asks, waits, and records the result.
     `just nix-switch honey` (landing is not delivering);
   - the operator has stopped the canary unit and the receipt says so.
 
-#### L1 — Loki bodies and audit via Alloy (after P1b; SWB-R19, R25, R26, R27)
+#### L1 — Loki bodies and audit via Alloy (after P1b; SWB-R19, R25, R26, R27, R33, R34)
 
 - **Owner:** tinyland.dev owner release (`infra/staging/alloy.yaml`
-  namespace allowlist and the `loki.process` block; RBAC if the new
-  namespace needs it), sequenced by blahaj; this repo (line schema);
-  `Jesssullivan/tailnet-acl` if the SWB-R27 decision changes a grant.
+  namespace allowlist and the `loki.process` block with its redaction
+  step; RBAC if the new namespace needs it), sequenced by blahaj; this repo
+  (line schema); `Jesssullivan/tailnet-acl` (the public Dhall repo) for
+  ACL A, applied by TIN-4670.
 - **Scope.** The broker namespace is added to the Alloy allowlist
-  (`alloy.yaml:326-345`) with the `loki.process` stage above; the broker
-  emits the line schema; bodies appear only if SWB-R27 decided so.
+  (`alloy.yaml:326-345`) with the `loki.process` stage above, including the
+  redaction step with the TIN-4668 collector scrubber's pattern set
+  (SWB-R34); the broker emits the line schema; bodies appear only once ACL
+  A is enforced live (SWB-R33). *Superseded 2026-09-25:* "bodies appear
+  only if SWB-R27 decided so", and an owner line that named tailnet-acl
+  only "if the SWB-R27 decision changes a grant" (it does: ACL A).
+- **Gate for bodies (SWB-R33, SWB-R34).** Bodies ship only when both hold:
+  TIN-4670 has applied ACL A in `Jesssullivan/tailnet-acl` and a raw Loki
+  read from a non-admin tailnet node is refused; and the redaction step is
+  live in the broker namespace's `loki.process` stage. *Proposed, not
+  ruled:* L1 may close on its metadata exits with bodies off, and the body
+  exits below then run as their own dated receipt once the gate holds, so
+  L2 does not wait on TIN-4670.
 - **Exit, all must hold:**
   - `query_loki_logs` `{service_name="swb", op="send"} | thread_id="<P1b thread>"`
     returns the P1b round-trip lines with `msg_id` and `trace_id` present
@@ -878,22 +967,19 @@ any host); the agent asks, waits, and records the result.
   - `list_loki_label_names` for `{service_name="swb"}` shows exactly
     `service_name`, `op` and the pod labels — no `msg_id`, `thread_id` or
     `trace_id` label;
-  - a maximum-size line (16 KiB body plus metadata) arrives intact, which
-    settles the unverified containerd CRI 16 KiB line-split question;
   - the broker binary has no Loki client and no OTLP logs exporter (a
     code-level assertion), and `list_loki_label_values(job)` shows `swb`
     lines only under `loki.source.kubernetes.pod_logs`. That a third party
     could push forged lines to the unauthenticated tailnet endpoint is
     accepted and stated, not disproved (the critique's point that job
     labels are client-set);
-  - the SWB-R27 decision is on TIN-4655 as a dated comment. The operator
-    has already answered the shared read-ACL question on TIN-4668
-    (`1001c0fb`: "A: tailnet ACL, admins + MCP"), and TIN-4668's item 4 is
-    defined as "the same body-read ACL decision as agent-switchboard
-    message bodies (TIN-4655 R0 ruling 2)"; what L1 needs is that answer
-    carried onto TIN-4655 as SWB-R27's dated carrier, which this ADR asks
-    for and does not mint. Its scope covers every reader: every tag and
-    group that reaches `tinyland-loki-observability:3100`,
+  - the SWB-R27 decision is on TIN-4655 as a dated comment — **met
+    2026-09-25**: comment `f870729e` records that the operator's TIN-4668
+    answer, "A: tailnet ACL, admins + MCP" (`1001c0fb`), is SWB-R27's
+    decision (SWB-R33). *Superseded 2026-09-25:* "what L1 needs is that
+    answer carried onto TIN-4655 as SWB-R27's dated carrier, which this ADR
+    asks for and does not mint." The decision's scope covers every
+    reader: every tag and group that reaches `tinyland-loki-observability:3100`,
     `tempo-observability:3200` (unauthenticated, `875fc21f`),
     `tinyland-grafana-observability:3000` and the canonical Grafana Ingress
     — naming `group:dollhouse-admins` and `group:dollhouse-users`
@@ -902,12 +988,22 @@ any host); the agent asks, waits, and records the result.
     has no per-datasource permissions, `875fc21f`), the Grafana Viewer
     service account behind the MCP proxy, and `kubectl logs` on the broker
     namespace;
-  - **decided is not enforced.** Whether bodies may ship once the decision
-    is recorded, or only once TIN-4670's ACL A is live — verified by a
-    refused raw Loki/Tempo read from a non-admin tailnet node and a
-    successful one from an admin node or the MCP proxy — is the operator's
-    call ([Open rulings](#open-rulings) 1). Until it is made, L1 ships no
-    bodies.
+  - **decided is not enforced**, ruled 2026-09-25 (SWB-R33, "Once ACL A is
+    enforced live (Recommended)"). Before any body ships, the receipt shows
+    a raw Loki read (`/loki/api/v1/labels` on
+    `tinyland-loki-observability:3100`) from a non-admin tailnet node
+    refused, and the same read from an admin node and from the MCP proxy
+    succeeding; the Tempo 3200 read is recorded the same way. Until then
+    L1 ships no bodies. *Superseded 2026-09-25:* "is the operator's call
+    (Open rulings 1). Until it is made, L1 ships no bodies."
+  - **Body exits, once the gate holds:**
+    - a canary `send` whose body carries one synthetic token in each
+      TIN-4668 scrubber shape arrives in Loki with every token redacted,
+      and the `size`/`body_hmac` on the line and on the span are those of
+      the unredacted body (the broker hashes before Alloy redacts)
+      (SWB-R34);
+    - a maximum-size line (16 KiB body plus metadata) arrives intact, which
+      settles the unverified containerd CRI 16 KiB line-split question.
 
 #### L2 — Tempo dialog projection, write-through from the broker only (after L1)
 
@@ -1013,17 +1109,30 @@ any host); the agent asks, waits, and records the result.
   block format version is recorded; the TIN-4655 comment cites the
   owner-release PR.
 
-#### L5 — harness-native telemetry (SWB-R31, SWB-R32; gated on the scrubbed TIN-4668 endpoint, its scrubber, and SWB-R27; its place after P4 is an open question)
+#### L5 — harness-native telemetry (SWB-R31, SWB-R32, SWB-R35, SWB-R36; independent of P4, starts once the scrubbed TIN-4668 endpoint, its scrubber and the enforced ACL all exist)
 
-- **Owner:** tinyland.dev owner release (the TIN-4668 receiver
-  `otlp/tailnet` on 14318, Service `otlp-harness-http-tailscale` 4318 →
-  14318, redaction processor and `logs/tailnet` pipeline), sequenced by
-  blahaj; `xoxd-ai/lab` (exporter rendering, Claude Code and Kimi first,
-  then Codex); `Jesssullivan/tailnet-acl` for any grant the endpoint needs;
-  `xoxd-ai/blahaj` (TIN-4670, the old Services' disposition).
-- **Gates, all before the flip:** the scrubbed endpoint answers; its
-  scrubber's tests pass; the SWB-R27 decision is carried on TIN-4655 and
-  covers the readers named in L1; and the rendered
+*Retitled 2026-09-25 (SWB-R36).* The heading read "… gated on the scrubbed
+TIN-4668 endpoint, its scrubber, and SWB-R27; its place after P4 is an open
+question". The operator's answer, "Start once its three gates hold
+(Recommended)", makes L5 independent of P4; it can start before, during or
+after any P phase once the gates below hold.
+
+- **Owner:** tinyland.dev owner release (the collector is tinyland.dev's:
+  the TIN-4668 receiver `otlp/tailnet` on 14318, Service
+  `otlp-harness-http-tailscale` 4318 → 14318, redaction processor,
+  `traces/tailnet` key allowlist and `logs/tailnet` pipeline; the PR is
+  being built by the blahaj seat), sequenced by blahaj; `xoxd-ai/lab`
+  (exporter rendering, Claude Code and Kimi first, then Codex);
+  `Jesssullivan/tailnet-acl` (public Dhall) for ACL A and any grant the
+  endpoint needs; `xoxd-ai/blahaj` (TIN-4670, the old Services'
+  disposition).
+- **Gates, all before the flip (SWB-R36):** the scrubbed endpoint answers;
+  its scrubber's tests pass; ACL A is enforced — TIN-4670 has applied it in
+  `Jesssullivan/tailnet-acl` and a raw Loki read from a non-admin tailnet
+  node is refused (the SWB-R33 bar), with SWB-R27's decision carried on
+  TIN-4655 (`f870729e`) and covering the readers named in L1. *Superseded
+  2026-09-25:* "the SWB-R27 decision is carried on TIN-4655 and covers the
+  readers named in L1" as the third gate. Also, the rendered
   `OTEL_EXPORTER_OTLP_ENDPOINT` (and any signal-specific
   `OTEL_EXPORTER_OTLP_*_ENDPOINT`) on every enrolled host equals the
   scrubbed host and never `otlp-observability-http` or
@@ -1043,6 +1152,12 @@ any host); the agent asks, waits, and records the result.
     harness skeleton and with no attribute carrying the prompt text (Tempo
     cannot hold it: 2048-byte attribute cap and the `traces/tailnet`
     allowlist);
+  - **recency, checked in Tempo (SWB-R35):** for a canary Claude Code
+    session that reads one known file and names one known ticket, a Tempo
+    query over the last hour returns that session's spans carrying the tool
+    name, the file path and the ticket ID as span attributes, and no span
+    attribute of that trace carries a prompt, tool input, tool output or
+    response body;
   - **scrub, checked on both signals:** a canary prompt containing one
     synthetic token in each scrubbed shape (`875fc21f`'s pattern list)
     shows every token redacted in the Loki event and in every Tempo span
@@ -1051,7 +1166,9 @@ any host); the agent asks, waits, and records the result.
     `logs/tailnet`, and the same scrub check passes for a Codex canary;
   - a `swb.send` span emitted for a message sent with `swb send` from a
     Claude Code Bash tool carries a link that resolves to the harness tool
-    span;
+    span. Because L5 no longer waits for P4 (SWB-R36), it can run before
+    L2 emits `swb` spans; if so, this one sub-exit is recorded as pending
+    (proposed, not ruled) and closed by a dated receipt once L2 has landed;
   - the Mimir series attributable to harness resource attributes
     (`resource_to_telemetry_conversion`) are counted and stay under
     **10,000 across all enrolled hosts over the first 7 days** (a proposed
@@ -1061,7 +1178,7 @@ any host); the agent asks, waits, and records the result.
     metrics resource before enrollment continues;
   - the `settingsJson.telemetry.enabled` key has been removed or its
     retention recorded;
-  - the receipt cites SWB-R31 and SWB-R32.
+  - the receipt cites SWB-R31, SWB-R32, SWB-R35 and SWB-R36.
 
 ## Risks
 
@@ -1092,18 +1209,26 @@ any host); the agent asks, waits, and records the result.
   and `kubectl logs` — can read them, and a central lookup lets any
   harness pull any thread's bodies into its own model provider (Kimi's
   endpoint, OpenAI for Codex, JetBrains for Junie), bypassing the
-  recipient-only path. SWB-R27 gates this; the skill frames LGTM bodies as
-  peer data; serving bodies only through the broker with LGTM holding
-  `body_hmac` is the alternative if the audit says no. The read-ACL
-  narrowing is the operator's own answer ("A: tailnet ACL, admins + MCP",
-  `1001c0fb`) and lands through TIN-4670; this ADR proposes no narrowing
-  of its own and asks for none.
-- **`swb` bodies bypass every scrubber.** They reach Loki through stdout →
-  Alloy, never through the TIN-4668 redaction processor, and the broker
-  does not redact (SWB-R19). Under SWB-R31 they are the one full-content
-  path with no redaction stage; whether SWB-R19 accepts that or an
-  Alloy-side `loki.process` redaction stage is added is open
-  ([Open rulings](#open-rulings) 4).
+  recipient-only path. SWB-R27 gates this, and bodies wait for ACL A to be
+  enforced live (SWB-R33); the skill frames LGTM bodies as peer data;
+  serving bodies only through the broker with LGTM holding `body_hmac` is
+  the alternative if the audit says no. The read-ACL narrowing is the
+  operator's own answer ("A: tailnet ACL, admins + MCP", `1001c0fb`) and
+  lands through TIN-4670 in `Jesssullivan/tailnet-acl`; this ADR proposes
+  no narrowing of its own and asks for none. ACL A narrows raw Loki and
+  Tempo reads; it leaves every Grafana user and the MCP proxy able to read
+  bodies, which is the audited-user-list half of that answer.
+- **`swb` bodies and the scrubber.** They reach Loki through stdout →
+  Alloy, never through the TIN-4668 collector redaction processor, and the
+  broker does not redact (SWB-R19). Ruled 2026-09-25 (SWB-R34): the broker
+  namespace's `loki.process` stage gets a redaction step with the same
+  pattern set. What remains: pattern redaction strips only known secret
+  shapes, the two pattern sets (collector and Alloy) can drift apart unless
+  the owner release keeps them in one source, and a secret in an unknown
+  shape still reaches Loki — so SWB-R19's "never put a secret in a body"
+  stays the first line. *Superseded 2026-09-25:* "whether SWB-R19 accepts
+  that or an Alloy-side `loki.process` redaction stage is added is open
+  (Open rulings 4)".
 - **A keyed hash, not a bare one.** With Tempo and Loki readable without
   credentials, a bare `sha256(body)` beside `size` would let any reader
   confirm a guessed short body ("yes", "ack", "done") by hashing it. The
@@ -1143,7 +1268,7 @@ any host); the agent asks, waits, and records the result.
   minute at steady state); the exporter lives in the broker; every neo
   generation is remote-produced; the lab contract tests run on sting or
   honey by hand until lab names a remote lane (Enrollment, Open rulings
-  12).
+  8).
 - **Darwin exec from external `/nix`** on neo and PZM (the node-exporter
   precedent; the TIN-4405 `/nix`-dark incident; PZM's unfinished USB HM
   activation).
@@ -1198,66 +1323,51 @@ interview answer (R-N13); this ADR adds none of its own. Where the operator
 has already spoken elsewhere, the item says so and asks only for the
 carrier.
 
-1. **SWB-R27's carrier and its enforcement gate.** The operator's answer to
-   the shared body-read ACL question exists on TIN-4668 (`1001c0fb`, "A:
-   tailnet ACL, admins + MCP"), and TIN-4668 defines that item as "the
-   same body-read ACL decision as agent-switchboard message bodies
-   (TIN-4655 R0 ruling 2)". Two things are asked, not minted: (a) a dated
-   TIN-4655 comment carrying that answer as SWB-R27's decision, with the
-   reader scope L1 names; (b) whether `swb` bodies may ship once that
-   comment exists, or only once TIN-4670's ACL A is enforced live,
-   verified by a refused raw read from a non-admin tailnet node. Whether
-   cross-thread body reads through LGTM, and their egress to each
-   harness's model provider, are acceptable is part of (a).
-2. **Does ruling 2's Tempo ban cover harness content?** "Bodies go only to
-   Loki, never into Tempo span attributes" was answered about `swb`
-   message bodies. The TIN-4668 build applies it to `traces/tailnet`
-   (`1001c0fb`), and this ADR puts L5 content in Loki either way; the
-   operator's word on the scope is asked so the collector's allowlist and
-   this ADR cite the same ruling.
-3. **Does L5 wait for P4?** Ruling 4's gates for L5 are the endpoint, the
-   scrubber and the body-read ACL. Ruling 3 adopted the plan's L0–L5
-   interleaving, which places L5 last, after P4 (Codex's live-thread
-   proof). Whether that ordering binds L5, or L5 may start as soon as its
-   three gates hold, is asked; "all on, all being shipped" is not narrowed
-   here.
-4. **`swb` bodies and the scrubber.** They bypass the TIN-4668 redaction
-   processor (stdout → Alloy → Loki) and the broker does not redact.
-   Either SWB-R19 accepts that explicitly, or tinyland.dev's `loki.process`
-   stage for the broker namespace gains a redaction step with the same
-   pattern set.
-5. **agentd never emits OTLP** (ADR-0001 → Push; principle 3 here) is a
+*Amended 2026-09-25.* The first four items were answered in TIN-4655
+comment `f870729e` and moved to [Rulings](#rulings): 1 (SWB-R27's carrier
+and enforcement gate) is SWB-R33, 2 (the Tempo ban's scope for harness
+content) is SWB-R35, 3 (whether L5 waits for P4) is SWB-R36, and 4 (`swb`
+bodies and the scrubber) is SWB-R34. The remaining items, formerly 5–13,
+are renumbered 1–9 in order; the comment leaves them "for a later round".
+Earlier TIN-4655 comments and the refutation table below use the old
+numbers.
+
+1. **agentd never emits OTLP** (ADR-0001 → Push; principle 3 here) is a
    design constraint carried under SWB-R17's "tiny" bound; comment
    `73f1ce72` records no answer for the plan's SWB-R17 row. It is asked as
    its own ruling so AGENTS.md can list it as ruled.
-6. **The Pi `agents` profile's phase.** SWB-R18 rules that it ships in v1;
+2. **The Pi `agents` profile's phase.** SWB-R18 rules that it ships in v1;
    ADR-0001 places it in P1b as "proposed, not ruled". Which phase carries
    it is asked.
-7. **yoga and mbp-13.** The TIN-4655 description names yoga among the
+3. **yoga and mbp-13.** The TIN-4655 description names yoga among the
    participating hosts and TIN-4668 lists neo, PZM, honey, bumble, sting,
    yoga and mbp-13; no P or L phase enrolls or excludes either.
-8. **Junie and Pi with both the broker and LGTM in one session:** a new
+4. **Junie and Pi with both the broker and LGTM in one session:** a new
    budgeted mcp-mux group (for example `ag` plus explicitly listed `graf`
    read tools) or a Pi profile, which would amend SWB-R12 / SWB-R18.
-9. **Retargeting the Grafana MCP** from `100.74.127.80:3000` to the
+5. **Retargeting the Grafana MCP** from `100.74.127.80:3000` to the
    canonical Ingress, which needs a tailnet-acl grant for honey and
    proxied-tools policy once Tempo exposes `/api/mcp`.
-10. **L4's schedule and ticket carrier** in the tinyland.dev owner release,
-    sequenced by blahaj.
-11. **Collector-side source attribution** (`k8sattributes` or a
-    per-namespace pipeline) versus explicitly accepted spoofability.
-12. **A named lab remote test lane.** lab at `3d755193` has none
-    (Enrollment); until it does, the lab contract tests for this design
-    run on sting or honey by hand and the receipt names the host. Owner:
-    lab; needed before the first P1b contract test lands.
-13. **The L5 host order** beyond "Claude Code and Codex first" (TIN-4668),
-    and confirmation or replacement of the proposed numeric bounds (neo
-    agentd in ADR-0001 → P2; Mimir series growth in L5) before each drill.
+6. **L4's schedule and ticket carrier** in the tinyland.dev owner release,
+   sequenced by blahaj.
+7. **Collector-side source attribution** (`k8sattributes` or a
+   per-namespace pipeline) versus explicitly accepted spoofability.
+8. **A named lab remote test lane.** lab at `3d755193` has none
+   (Enrollment); until it does, the lab contract tests for this design
+   run on sting or honey by hand and the receipt names the host. Owner:
+   lab; needed before the first P1b contract test lands.
+9. **The L5 host order** beyond "Claude Code and Codex first" (TIN-4668),
+   and confirmation or replacement of the proposed numeric bounds (neo
+   agentd in ADR-0001 → P2; Mimir series growth in L5) before each drill.
 
 ## Rulings
 
-Source: TIN-4655 comment `73f1ce72-28c5-42d6-9039-1135e1c92121`
-(2026-09-25T17:57Z, "R0: LGTM rulings interview"). Operator questions and
+Sources: TIN-4655 comment `73f1ce72-28c5-42d6-9039-1135e1c92121`
+(2026-09-25T17:57Z, "R0: LGTM rulings interview") for SWB-R25 to SWB-R32,
+and TIN-4655 comment `f870729e-dbcb-451d-97c3-0c1e1f8e9641`
+(2026-09-25T19:11Z, "Open rulings on ADR-0002 / agent-switchboard #4",
+operator interview) for SWB-R33 to SWB-R36, which answer this ADR's former
+Open rulings 1–4. Operator questions and
 asides are not rulings (R-N13). SWB-R02's rewording is recorded in
 ADR-0001's table. The critique fixes were adopted as a block under ruling
 3 and are design, not separate IDs; the table after this one lists where
@@ -1277,12 +1387,16 @@ wording.
 | --- | --- | --- | --- |
 | SWB-R25 | 2026-09-25 | R0 ruling 2: "7d in LGTM, ACL decided before P1b (Recommended)" | Tempo and Loki keep 7 days, and the broker keeps 30 days for unacked messages. |
 | SWB-R26 | 2026-09-25 | same pick | Bodies go only to Loki, never into Tempo span attributes. tinyland.dev L1 adds a `loki.process` stage. (The route that stage presupposes, broker stdout → Alloy, is the plan's architecture C.) |
-| SWB-R27 | 2026-09-25 | same pick | Bodies stay out of stdout until a named body-read ACL audit is decided, including who can read Loki today. The decision comes before P1b. The operator's later answer to the shared read-ACL question is on TIN-4668 (`1001c0fb`, "A: tailnet ACL, admins + MCP"); carrying it onto TIN-4655 as this ruling's decision is asked in Open rulings 1. |
+| SWB-R27 | 2026-09-25 | same pick | Bodies stay out of stdout until a named body-read ACL audit is decided, including who can read Loki today. The decision comes before P1b. The operator's later answer to the shared read-ACL question is on TIN-4668 (`1001c0fb`, "A: tailnet ACL, admins + MCP"); carrying it onto TIN-4655 as this ruling's decision is asked in Open rulings 1. *Addendum 2026-09-25 (`f870729e`, SWB-R33):* that TIN-4668 answer is this ruling's decision, now carried on TIN-4655; bodies ship only once ACL A is enforced live. |
 | SWB-R28 | 2026-09-25 | R0 ruling 3: "Adopt, with the critique fixes (Recommended)" | The LGTM steps L0–L5 are interleaved with the broker phases. Dashboards go to tinyland.dev's owner release, and paging alerts to blahaj prometheus-mail. |
 | SWB-R29 | 2026-09-25 | same pick | L0 (the `mcp-grafana` bump) starts only after a Host-header canary, since the critique flagged a likely HTTP 403 for tailnet clients. |
 | SWB-R30 | 2026-09-25 | same pick | A Fable lane revises ADR-0001 and adds ADR-0002 (the LGTM plane), folding in every critique fix. Opus refutes it, then a PR goes through the fork. |
 | SWB-R31 | 2026-09-25 | R0 ruling 4, the operator's words: "I'll like it all on, all being shipped. this is what can help agents opractively and efficiently pickup from others work, woithout needing to reconsruct from in agent transcripts / wal etc"; content pick: "Full content, scrubbed at the collector (Recommended)" | Prompts, tool input and output, and responses ship in full, after a collector redaction processor strips known secret shapes (tokens, keys, sops values, age and SSH keys). The body-read ACL decision gates it too. |
 | SWB-R32 | 2026-09-25 | same ruling, ingest pick: "Request it from tinyland.dev/blahaj (Recommended)" | A tailnet OTLP/HTTP endpoint on the existing collector, with the scrub processor and the ACL; the unblocker for TIN-75; filed as TIN-4668. Lab renders the harness exporters gated off until that endpoint exists. This supersedes the lab default `tinyland.claudeCode.telemetry.enable = false` as the target state, but not until the endpoint and scrubber exist. The operator's later words on the same subject (TIN-4668 `1001c0fb`): lab keeps "the harness exporters gated off, and never to point them at the old `otlp-observability-http:4318`". |
+| SWB-R33 | 2026-09-25 | `f870729e` item 1, SWB-R27 body gate: "Once ACL A is enforced live (Recommended)" | The operator's TIN-4668 answer, "A: tailnet ACL, admins + MCP" (`1001c0fb`), is SWB-R27's decision. `swb` bodies ship only after TIN-4670 applies ACL A in `Jesssullivan/tailnet-acl`, and a raw Loki read from a non-admin tailnet node is refused. |
+| SWB-R34 | 2026-09-25 | `f870729e` item 2, `swb` bodies and the scrubber: "Redact in the loki.process stage (Recommended)" | tinyland.dev's `loki.process` stage for the broker namespace gets a redaction step with the same pattern set as the TIN-4668 collector scrubber. |
+| SWB-R35 | 2026-09-25 | `f870729e` item 3, Tempo scope for harness telemetry, the operator's words: "I think tool calls, files refenced etc would be suitable for tempo, recently accessed tickets, files, paths etc in timeserice db like tempo seems like valuable  time efficient lookup for agents orienting to a complex workstream or sprint / epic / codebase." And the clarification: "indeed; we are treating tempo as a timespace efficent recency == relacence, for miniizing repeated mining calls to loki; this is using tempo as is it architected, not as it is intended." | Tempo is the recency index, where recency means relevance. Tool calls, referenced files and paths, and recently accessed tickets are span attributes. Bodies and full content (prompts, tool output) stay in Loki; that also fits Tempo's 2 KiB attribute cap. The aim is to cut repeated Loki mining when an agent orients to a workstream, sprint, epic or codebase. |
+| SWB-R36 | 2026-09-25 | `f870729e` item 4, L5 timing: "Start once its three gates hold (Recommended)" | L5 is independent of P4. It starts when the TIN-4668 scrubbed endpoint, the scrubber and the enforced ACL all exist. |
 
 **Critique fixes carried (R0 ruling 3, "Critique fixes the ADR revision
 must carry"):**
@@ -1292,7 +1406,7 @@ must carry"):**
 | "The switchboard Claude hooks merge at `mkDefault`, so the three fail-closed guard hooks survive, with a contract test." | Enrollment; ADR-0001 P1b |
 | "Claude and Kimi enrollment goes through `vars/mcp_registry.yml` → export-registries → `tinyland.mcp` → `~/.claude.json`." | Enrollment; ADR-0001 Harness reach |
 | "Codex `notify` is runtime-owned, so there is no new table." | Enrollment; ADR-0001 Identity, Lease, P4 |
-| "The Junie/Pi lookup gap is stated: one Junie server, single-profile Pi." | Lookup recipes; Enrollment; ADR-0001 Harness reach; Open rulings 8 |
+| "The Junie/Pi lookup gap is stated: one Junie server, single-profile Pi." | Lookup recipes; Enrollment; ADR-0001 Harness reach; Open rulings 4 (numbered 8 before the 2026-09-25 amendment) |
 | "The Loki schema needs a `loki.process` stage." | Data model → Loki (SWB-R26); L1 |
 | "The projection is lossy, so it needs a transactional outbox or a reconciliation gauge, and 'absent' means expired or not projected." | Outbox and reconciliation; principle 7; L2 exit |
 | "Each lifecycle step gets its own trace, linked back to the send span." | Data model → Identifiers |
@@ -1302,7 +1416,7 @@ must carry"):**
 Other critique problems that held and were folded in: the L0 403 risk and
 Host strategy (SWB-R29 and L0); the unverified `ops` budget (L0); bodies
 readable before the ACL gate, with `group:dollhouse-users` named (SWB-R27,
-L1, Risks); egress through cross-thread reads (Risks, Open rulings 1);
+L1, Risks); egress through cross-thread reads (Risks; SWB-R33, formerly Open rulings 1);
 unobservable exit checks replaced (P1b, L1, L2, L3); the L3 alert data
 path through federation (L3); `agent_id` cardinality (Mimir series);
 agentd from external `/nix` (Enrollment, ADR-0001 P2); the deferred false
@@ -1311,7 +1425,7 @@ vParquet column limits, the textfile directory owner, the TIN-75 gate's
 real scope, and the auto-memory ruling being about durability rather than
 privacy (corrected in place); broker-derived trace ids and
 `delivery_count` in span ids (Identifiers); yoga and tailnet-acl ownership
-(Ownership table, Open rulings 7); R0's durable carrier (the agent note
+(Ownership table, Open rulings 3, formerly 7); R0's durable carrier (the agent note
 named in ADR-0001 → Phases).
 
 Estate rulings this design depends on, beyond ADR-0001's list:
@@ -1349,6 +1463,12 @@ refutation of the first draft returned "ship-with-fixes" with 23 problems
 and 7 ruling-fidelity findings. Every one held and is applied; none is
 rejected. Where a fix needed an operator decision, the ADR asks for it in
 [Open rulings](#open-rulings) instead of deciding.
+
+*Note 2026-09-25 (amendment):* this table and the paragraph after it are
+the record of the refutation as handled at `16110709`, and keep that
+commit's Open-rulings numbers. Since then items 1–4 were ruled (1 →
+SWB-R33, 2 → SWB-R35, 3 → SWB-R36, 4 → SWB-R34) and items 5–13 are
+renumbered 1–9 (5 → 1, 6 → 2, 7 → 3, 8 → 4, 12 → 8, 13 → 9).
 
 | # | Problem, in short | Handling |
 | --- | --- | --- |

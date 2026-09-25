@@ -12,10 +12,12 @@ operator question or aside is not a ruling.
 
 **Read second:** [ADR-0002](docs/adr/0002-lgtm-plane.md), the LGTM plane
 (Proposed until its PR merges). It carries the R0 rulings
-`SWB-R25`..`SWB-R32` (2026-09-25) and the re-sequenced phase order R0 →
-P1a → L0 → the SWB-R27 decision → P1b → L1 → L2 → P2 → L3 → P3 → L4 → P4 →
-L5. `SWB-R02` was reworded in the same round; ADR-0001 keeps the superseded
-wording beside the new one.
+`SWB-R25`..`SWB-R32` and their amendment round `SWB-R33`..`SWB-R36` (both
+2026-09-25), and the re-sequenced phase order R0 → P1a → L0 → the SWB-R27
+decision → P1b → L1 → L2 → P2 → L3 → P3 → L4 → P4, with L5 independent of
+P4: it starts once the scrubbed TIN-4668 endpoint, its scrubber and the
+enforced ACL all exist (SWB-R36). `SWB-R02` was reworded in the same round;
+ADR-0001 keeps the superseded wording beside the new one.
 
 ## Estate rulings that bind here
 
@@ -96,9 +98,15 @@ These are ruled; see the ADR:
   (SWB-R25).
 - Bodies go to Loki with the audit stream (SWB-R19), so a body must never
   carry a secret. They never go into Tempo span attributes; the route is
-  broker stdout → Alloy with a `loki.process` stage (SWB-R26); and they
-  stay out of stdout until the body-read ACL audit is decided, before P1b
-  (SWB-R27).
+  broker stdout → Alloy with a `loki.process` stage (SWB-R26), which
+  redacts with the same pattern set as the TIN-4668 collector scrubber
+  (SWB-R34). The body-read ACL decision is ACL A, "A: tailnet ACL, admins +
+  MCP" (SWB-R27), and bodies stay out of stdout until ACL A is enforced
+  live: TIN-4670 has applied it in `Jesssullivan/tailnet-acl` and a raw
+  Loki read from a non-admin tailnet node is refused (SWB-R33).
+- Harness telemetry (L5): Tempo is the recency index. Harness spans carry
+  tool names, file paths and ticket IDs as attributes and never bodies;
+  prompts, tool input and output and responses stay in Loki (SWB-R35).
 - SWB-R02, reworded 2026-09-25, verbatim: "Self-registration is
   authoritative; the broker writes through to LGTM, which is the
   read/query/context plane and never the commit path." Acks, claims,
