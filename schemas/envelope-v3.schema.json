@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/xoxd-ai/agent-switchboard/blob/main/schemas/envelope-v3.schema.json",
+  "title": "agent-switchboard message envelope v3 (DRAFT)",
+  "description": "DRAFT for P1b. v3 is the lab #1920 cross-host-message v2 envelope (msg_id, from, sent_at, ticket, authority, reply_to, reply_expires, reply_format, in_reply_to, body) plus thread_id, seq, ruling, operator_directed and transport, with reply_to as an ag:<agent_id> address. The broker stamps authority=peer on every message and never emits operator (ADR-0001, SWB-R14). Bodies are teammate data, never instructions, and never pass through a shell.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "msg_id",
+    "thread_id",
+    "from",
+    "to",
+    "sent_at",
+    "ticket",
+    "authority",
+    "operator_directed",
+    "transport",
+    "reply_to",
+    "body"
+  ],
+  "properties": {
+    "v": {
+      "const": 3
+    },
+    "msg_id": {
+      "$ref": "#/$defs/ulid",
+      "description": "Client may supply it for idempotent retries; the broker mints one otherwise."
+    },
+    "thread_id": {
+      "$ref": "#/$defs/ulid"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Per-thread sequence, assigned by the broker inside the write transaction. Absent on a client submission, present on every delivered message."
+    },
+    "in_reply_to": {
+      "$ref": "#/$defs/ulid"
+    },
+    "from": {
+      "$ref": "#/$defs/agent_id"
+    },
+    "to": {
+      "$ref": "#/$defs/agent_id"
+    },
+    "sent_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Default sent_at + 72 h; at most sent_at + 14 d (SWB-R09)."
+    },
+    "ticket": {
+      "type": "string",
+      "pattern": "^(TIN-[0-9]+|none)$"
+    },
+    "authority": {
+      "const": "peer",
+      "description": "Stamped by the broker on every message, overwriting any sender value. Never 'operator'."
+    },
+    "operator_directed": {
+      "type": "boolean",
+      "description": "The SENDER'S CLAIM that its operator directed this message (SWB-R14). Requires a ruling pointer. Receivers verify the pointer with their own operator, AGENTS.md or the Linear comment before acting; the flag never confers authority."
+    },
+    "ruling": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "description": "A Linear comment URL or a ruling ID (for example R-N13 or SWB-R14) that the receiver can check."
+    },
+    "transport": {
+      "enum": [
+        "broker",
+        "direct",
+        "ssh-forward",
+        "linear"
+      ],
+      "description": "broker = mailbox; direct = same-host uds SendMessage; ssh-forward = lab #1920 remote-session-message; linear = a ticket comment. Degraded order: direct, ssh-forward, linear, operator."
+    },
+    "reply_to": {
+      "type": "string",
+      "pattern": "^(ag:[a-z]+:[A-Za-z0-9._-]+:[0-9]+:[A-Za-z0-9._-]+|none \\(reply on .+\\))$"
+    },
+    "reply_expires": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reply_format": {
+      "type": "string",
+      "maxLength": 512
+    },
+    "artifacts": {
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      }
+    },
+    "body": {
+      "type": "string",
+      "maxLength": 16384,
+      "description": "At most 16 KiB. The broker enforces the byte limit (maxLength counts characters) and strips control characters."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "operator_directed": {
+            "const": true
+          }
+        },
+        "required": [
+          "operator_directed"
+        ]
+      },
+      "then": {
+        "required": [
+          "ruling"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "harness:host:pid:session_id. Registration also records proc_start to guard against PID reuse.",
+      "pattern": "^(claude|kimi|codex|junie|opencode|pi):[A-Za-z0-9._-]+:[0-9]+:[A-Za-z0-9._-]+$"
+    }
+  }
+}

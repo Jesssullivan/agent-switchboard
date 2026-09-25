@@ -1,0 +1,32 @@
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+
+package(default_visibility = ["//visibility:public"])
+
+# The swb binary as an image layer. This is the CI package target today and
+# the input layer of the P1b image.
+pkg_tar(
+    name = "swb_layer",
+    srcs = ["//crates/swb:swb"],
+    mode = "0755",
+    package_dir = "/usr/local/bin",
+)
+
+# TODO(P1b, TIN-4655): the rules_oci image. Deferred from P1a because it needs
+# an `oci.pull` of a distroless base pinned by digest plus the crane/regctl
+# toolchains, a network image pull on every CI run for no P1a benefit.
+# Planned shape:
+#
+#   bazel_dep(name = "rules_oci", version = "2.3.0")        # MODULE.bazel
+#   oci.pull(name = "distroless_cc", digest = "sha256:...", # pinned by digest
+#            image = "gcr.io/distroless/cc-debian12",
+#            platforms = ["linux/amd64"])
+#
+#   oci_image(
+#       name = "image",
+#       base = "@distroless_cc",
+#       entrypoint = ["/usr/local/bin/swb", "serve"],
+#       tars = [":swb_layer"],
+#   )
+#
+# The image is published by digest from main only; blahaj consumes the digest
+# (tofu/stacks/agent-switchboard). No push happens from pull requests.

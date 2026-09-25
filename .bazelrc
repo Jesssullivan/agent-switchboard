@@ -1,0 +1,6 @@
+# Local conveniences only. CI runs every Bazel command with
+# --ignore_all_rc_files (xoxd-ai/ci-templates bazelisk-ci driver), so any
+# setting that a CI target needs belongs in MODULE.bazel or a BUILD file,
+# never here.
+build --incompatible_strict_action_env
+test --test_output=errors

@@ -1,0 +1,85 @@
+load("@rules_rust//rust:defs.bzl", "rust_clippy", "rustfmt_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "Cargo.lock",
+    "Cargo.toml",
+    "MODULE.bazel",
+    "cargo-bazel-lock.json",
+])
+
+# Every Rust target that rustfmt and clippy must cover. Keep in step with the
+# crate BUILD files; CI calls the exact labels below (see .github/workflows/ci.yml).
+RUST_SOURCE_TARGETS = [
+    "//crates/swb:swb",
+    "//crates/swb-agentd:swb_agentd",
+    "//crates/swb-broker:swb_broker",
+    "//crates/swb-broker:broker_integration_test",
+    "//crates/swb-proto:swb_proto",
+    "//crates/swb-store:swb_store",
+]
+
+alias(
+    name = "swb",
+    actual = "//crates/swb:swb",
+)
+
+filegroup(
+    name = "build",
+    srcs = ["//crates/swb:swb"],
+)
+
+rustfmt_test(
+    name = "fmt",
+    targets = RUST_SOURCE_TARGETS,
+)
+
+rust_clippy(
+    name = "clippy_lint",
+    testonly = True,
+    deps = RUST_SOURCE_TARGETS + [
+        "//crates/swb:swb_test",
+        "//crates/swb-agentd:swb_agentd_test",
+        "//crates/swb-broker:swb_broker_test",
+        "//crates/swb-proto:swb_proto_test",
+        "//crates/swb-store:swb_store_test",
+    ],
+)
+
+# rust_clippy is a build rule; the reusable CI workflow runs clippy labels with
+# `bazel test`, so this test cannot run until every clippy output succeeds
+# (rules_rust applies -Dwarnings when no clippy_flags are set).
+sh_test(
+    name = "clippy",
+    srcs = ["//tools:clippy_test.sh"],
+    args = ["clippy-aspect-complete"],
+    data = [":clippy_lint"],
+)
+
+test_suite(
+    name = "unit_tests",
+    tests = [
+        "//crates/swb:swb_test",
+        "//crates/swb-agentd:swb_agentd_test",
+        "//crates/swb-broker:swb_broker_test",
+        "//crates/swb-proto:swb_proto_test",
+        "//crates/swb-store:swb_store_test",
+    ],
+)
+
+test_suite(
+    name = "integration_tests",
+    tests = ["//crates/swb-broker:broker_integration_test"],
+)
+
+test_suite(
+    name = "check",
+    tests = [
+        ":clippy",
+        ":fmt",
+        ":integration_tests",
+        ":unit_tests",
+    ],
+)

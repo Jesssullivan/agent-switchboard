@@ -1,0 +1,14 @@
+[package]
+name = "swb-broker"
+description = "agent-switchboard broker: MCP (rmcp Streamable HTTP), REST /v1 and metrics - P1a stub."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+swb-proto = { path = "../swb-proto" }
+
+[dev-dependencies]
+serde_json.workspace = true

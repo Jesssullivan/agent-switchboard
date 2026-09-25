@@ -1,0 +1,50 @@
+{
+  "$schema": "https://raw.githubusercontent.com/xoxd-ai/site.scaffold/6c58bb630de1b474881532d60d801e2e5cbf09bf/docs/schemas/tinyland-repo-manifest.schema.json",
+  "schema_version": 1,
+  "repo": {
+    "name": "agent-switchboard",
+    "github": "xoxd-ai/agent-switchboard",
+    "description": "agent-switchboard (swb): the tailnet-only broker for cross-harness agent session discovery, threaded dialog and advisory task claims/handoff, with its per-host push adapter and hook client.",
+    "linear": {
+      "issue": "TIN-4655"
+    }
+  },
+  "taxonomy": {
+    "primary_role": "org-utility",
+    "layers": [
+      "org-wide-repo-contract",
+      "bazel-package-cache-rbe"
+    ]
+  },
+  "contracts": {
+    "agent_contract": "AGENTS.md and CLAUDE.md. Fork convention (ADR-0001, SWB-R08/SWB-R13), recorded here as free text because the manifest schema has no fork field: the canonical repo is xoxd-ai/agent-switchboard, and the private fork is Jesssullivan/agent-switchboard. In a clone, origin is the fork and the only push target; upstream is xoxd-ai with its push URL set to DISABLED (just fork-setup). Branches are <type>/tin-####-<slug>-<yyyymmdd>. PRs go from the fork to upstream main through the merge queue.",
+    "just": "justfile",
+    "nix": "flake.nix (devShell only; Bazel is the build authority)",
+    "github_actions": ".github/workflows/ci.yml. ci-ok is the required aggregate. It calls xoxd-ai/ci-templates rust-bazel-application.yml at ae836d8400d5784d74af4fecc020f225d1c2d08e (v5.1.1) for same-repository pull_request, merge_group and push to main. On fork pull requests both jobs are skipped (gated in merge queue), and the full lane runs on merge_group.",
+    "secrets_scan": "none",
+    "conformance": "just check (Bazel //:check: rustfmt, clippy, unit and integration tests), run on sting or honey (just remote-check from neo). CI runs the exact target lists in ci.yml. There is no secrets scan yet; it is planned with the P1b broker."
+  },
+  "boundaries": {
+    "owns_runtime_backend": true,
+    "owns_auth": false,
+    "owns_payments": false,
+    "owns_activitypub_delivery": false,
+    "owns_live_broker_fetch": false,
+    "owns_static_projection_ingest": false,
+    "owns_gitops_apply": false,
+    "owns_cloudflare_mutation": false,
+    "owns_bazel_module_authority": false
+  },
+  "authorities": {
+    "ci_templates": "xoxd-ai/ci-templates",
+    "cache_rbe_authority": "xoxd-ai/GloriousFlywheel",
+    "gitops_receiver": "xoxd-ai/blahaj"
+  },
+  "supply_chain": {
+    "sbom": {
+      "status": "planned",
+      "formats": [],
+      "notes": "The broker ships as an OCI image published by digest from main (P1b). No SBOM format has been chosen; standardize through ci-templates before this moves to recipe-available."
+    }
+  }
+}

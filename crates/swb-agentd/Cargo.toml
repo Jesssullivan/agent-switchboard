@@ -1,0 +1,8 @@
+[package]
+name = "swb-agentd"
+description = "agent-switchboard per-host push adapter (long-poll, body-less notices) - P1a stub."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
