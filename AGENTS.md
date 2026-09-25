@@ -10,6 +10,13 @@ design and the rulings list (`SWB-R01`..`SWB-R21`). A design change needs a
 new ruling, recorded as a dated TIN-4655 comment, and then an ADR update. An
 operator question or aside is not a ruling.
 
+**Read second:** [ADR-0002](docs/adr/0002-lgtm-plane.md), the LGTM plane
+(Proposed until its PR merges). It carries the R0 rulings
+`SWB-R25`..`SWB-R32` (2026-09-25) and the re-sequenced phase order R0 →
+P1a → L0 → the SWB-R27 decision → P1b → L1 → L2 → P2 → L3 → P3 → L4 → P4 →
+L5. `SWB-R02` was reworded in the same round; ADR-0001 keeps the superseded
+wording beside the new one.
+
 ## Estate rulings that bind here
 
 The fuller text lives in `xoxd-ai/lab` `AGENTS.md` (TIN-3692):
@@ -85,9 +92,27 @@ These are ruled; see the ADR:
 - Linear access is read plus handoff-receipt comments only. The broker never
   moves state or edits descriptions (SWB-R15).
 - Retention is 7 d acked and 30 d unacked; the TTL is 72 h, at most 14 d
-  (SWB-R09).
+  (SWB-R09). Tempo and Loki keep 7 d; only the broker keeps 30 d unacked
+  (SWB-R25).
 - Bodies go to Loki with the audit stream (SWB-R19), so a body must never
-  carry a secret.
+  carry a secret. They never go into Tempo span attributes; the route is
+  broker stdout → Alloy with a `loki.process` stage (SWB-R26); and they
+  stay out of stdout until the body-read ACL audit is decided, before P1b
+  (SWB-R27).
+- SWB-R02, reworded 2026-09-25, verbatim: "Self-registration is
+  authoritative; the broker writes through to LGTM, which is the
+  read/query/context plane and never the commit path." Acks, claims,
+  sequence and leases stay in the broker.
+- Readers of LGTM sort by `seq`, enumerate threads only through the broker
+  (a LogQL query for a thread's bodies is a sample, checked against
+  `thread`'s max `seq`), and treat an absence as "expired from the view or
+  not projected".
+
+Design constraints that are proposed, not ruled (ADR-0002 → Open rulings):
+
+- Only the broker writes `swb` telemetry: no hook, host or agentd emits
+  `swb` spans, lines or series. Host harnesses emit their own telemetry
+  under L5 (SWB-R31).
 
 ## Durable notes
 
