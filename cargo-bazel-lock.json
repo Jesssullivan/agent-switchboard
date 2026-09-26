@@ -1,5 +1,5 @@
 {
-  "checksum": "9575d426fdc8a91ad4acce5a028d779ae3a88b16a3b73374237767ae21dbda13",
+  "checksum": "9d2fd3e47581dc7b070884852e4aafb800dd58d6a6ff2e2cf7b0e5af6e8d83c7",
   "crates": {
     "android_system_properties 0.1.6": {
       "name": "android_system_properties",
@@ -6228,6 +6228,10 @@
         ],
         "deps": {
           "common": [
+            {
+              "id": "serde_json 1.0.149",
+              "target": "serde_json"
+            },
             {
               "id": "tokio 1.53.1",
               "target": "tokio"

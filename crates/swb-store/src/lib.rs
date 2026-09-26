@@ -143,6 +143,16 @@ impl Store {
             params![id,harness,host,proc_start]).map_err(sql_err)?;
         Ok(json!({"agent_id":id,"lease_seconds":900}))
     }
+    pub fn end(&self, me: &str, proc_start: &str) -> Result<Value, String> {
+        let db = self.0.lock().map_err(|_| "store lock poisoned")?;
+        let changed = db
+            .execute(
+                "UPDATE sessions SET ended=1 WHERE agent_id=?1 AND proc_start=?2",
+                params![me, proc_start],
+            )
+            .map_err(sql_err)?;
+        Ok(json!({"agent_id":me,"state":if changed == 1 {"ended"} else {"unknown"}}))
+    }
     pub fn peers(&self) -> Result<Value, String> {
         let db = self.0.lock().map_err(|_| "store lock poisoned")?;
         let mut stmt = db.prepare("SELECT agent_id,harness,host,proc_start,last_seen,ended FROM sessions ORDER BY agent_id").map_err(sql_err)?;
@@ -455,6 +465,21 @@ mod tests {
         assert_eq!(effective_ttl_hours(None), 72);
         assert_eq!(effective_ttl_hours(Some(10_000)), 336);
         assert_eq!(effective_ttl_hours(Some(0)), 1);
+    }
+    #[test]
+    fn end_requires_matching_process_start() {
+        let s = Store::memory().unwrap();
+        let registration = s
+            .register(&json!({
+                "harness":"claude","host":"honey","pid":10,
+                "session_id":"same","proc_start":"new"
+            }))
+            .unwrap();
+        let me = registration["agent_id"].as_str().unwrap();
+        assert_eq!(s.end(me, "old").unwrap()["state"], "unknown");
+        assert_eq!(s.peers().unwrap()["peers"][0]["state"], "live");
+        assert_eq!(s.end(me, "new").unwrap()["state"], "ended");
+        assert_eq!(s.peers().unwrap()["peers"][0]["state"], "ended");
     }
     #[test]
     fn round_trip_and_opaque_conflict() {

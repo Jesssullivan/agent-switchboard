@@ -1,36 +1,238 @@
-//! `swb`, the agent-switchboard binary (P1a stub).
-//!
-//! One binary: `swb serve | agentd | hook <harness> | whoami | inbox`.
-//! Only `version` works in P1a; the rest land in P1b and P2.
-
+//! Broker and bounded client commands. Session identity is explicit, never
+//! derived by walking process ancestry (R-N11, SWB-R10).
+use serde_json::{Value, json};
+use std::io::{Read, Write};
+use std::net::{TcpStream, ToSocketAddrs};
 use std::process::ExitCode;
+use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: swb <serve|agentd|hook <harness>|whoami|inbox|version>";
+const LIMIT: Duration = Duration::from_millis(1500);
 
-/// Exit status for a subcommand. `hook` always exits 0, so a missing or down
-/// broker never blocks a harness (ADR-0001, SWB-R10).
-fn exit_status(subcommand: Option<&str>) -> u8 {
-    match subcommand {
-        Some("hook" | "version") => 0,
-        Some("agentd" | "whoami" | "inbox") => 3,
-        Some("serve") => 0,
-        _ => 2,
+fn env(name: &str) -> Result<String, String> {
+    std::env::var(name)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| format!("{name} is required"))
+}
+
+fn endpoint() -> Result<(String, u16), String> {
+    let url = env("SWB_BROKER_URL")?;
+    let rest = url
+        .strip_prefix("http://")
+        .ok_or("SWB_BROKER_URL must be http://")?;
+    if rest.contains(['/', '@', '?']) {
+        return Err("broker URL must contain host and port only".into());
     }
+    let (host, port) = rest.rsplit_once(':').ok_or("broker URL needs a port")?;
+    if host.is_empty() || host.contains(':') {
+        return Err("invalid broker host".into());
+    }
+    Ok((
+        host.into(),
+        port.parse().map_err(|_| "invalid broker port")?,
+    ))
+}
+
+fn call(method: &str, path: &str, data: Option<&Value>) -> Result<Value, String> {
+    let (host, port) = endpoint()?;
+    let deadline = Instant::now() + LIMIT;
+    let address = (host.as_str(), port)
+        .to_socket_addrs()
+        .map_err(|e| e.to_string())?
+        .next()
+        .ok_or("broker has no address")?;
+    let mut socket =
+        TcpStream::connect_timeout(&address, deadline.saturating_duration_since(Instant::now()))
+            .map_err(|e| e.to_string())?;
+    let body = data.map_or_else(String::new, Value::to_string);
+    socket
+        .set_write_timeout(Some(deadline.saturating_duration_since(Instant::now())))
+        .map_err(|e| e.to_string())?;
+    write!(socket, "{method} {path} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err("broker deadline exceeded".into());
+        }
+        socket
+            .set_read_timeout(Some(left))
+            .map_err(|e| e.to_string())?;
+        let mut chunk = [0u8; 8192];
+        match socket.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                bytes.extend_from_slice(&chunk[..n]);
+                if bytes.len() > 131072 {
+                    return Err("broker response too large".into());
+                }
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    let split = bytes
+        .windows(4)
+        .position(|b| b == b"\r\n\r\n")
+        .ok_or("invalid HTTP response")?;
+    let headers = std::str::from_utf8(&bytes[..split]).map_err(|e| e.to_string())?;
+    let status: u16 = headers
+        .lines()
+        .next()
+        .and_then(|s| s.split_whitespace().nth(1))
+        .ok_or("invalid status")?
+        .parse()
+        .map_err(|_| "invalid status")?;
+    if headers
+        .to_ascii_lowercase()
+        .contains("transfer-encoding: chunked")
+    {
+        return Err("chunked response unsupported".into());
+    }
+    let result: Value = serde_json::from_slice(&bytes[split + 4..]).map_err(|e| e.to_string())?;
+    if !(200..300).contains(&status) {
+        return Err(format!("broker HTTP {status}"));
+    }
+    Ok(result)
+}
+
+fn register(harness: &str, session_id: &str) -> Result<Value, String> {
+    if !matches!(
+        harness,
+        "claude" | "kimi" | "codex" | "junie" | "opencode" | "pi"
+    ) {
+        return Err("invalid harness".into());
+    }
+    let pid: u32 = env("SWB_SESSION_PID")?
+        .parse()
+        .map_err(|_| "invalid SWB_SESSION_PID")?;
+    if pid == 0 || session_id.is_empty() {
+        return Err("missing session identity".into());
+    }
+    call(
+        "POST",
+        "/v1/register",
+        Some(&json!({
+            "harness":harness, "host":env("SWB_HOST")?, "pid":pid,
+            "session_id":session_id, "proc_start":env("SWB_PROC_START")?
+        })),
+    )
+}
+
+fn inbox(me: &str) -> Result<Value, String> {
+    if me.is_empty()
+        || !me
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-:".contains(&b))
+    {
+        return Err("invalid SWB_AGENT_ID".into());
+    }
+    call(
+        "GET",
+        &format!("/v1/inbox?me={me}&limit=20&wait_seconds=0"),
+        None,
+    )
+}
+
+fn hook(harness_arg: &str, event: &str) {
+    if !matches!(
+        event,
+        "SessionStart" | "UserPromptSubmit" | "Stop" | "SessionEnd"
+    ) {
+        return;
+    }
+    let mut input = Vec::new();
+    if std::io::stdin()
+        .take(65537)
+        .read_to_end(&mut input)
+        .is_err()
+        || input.len() > 65536
+    {
+        return;
+    }
+    let Ok(input) = serde_json::from_slice::<Value>(&input) else {
+        return;
+    };
+    let Some(session_id) = input.get("session_id").and_then(Value::as_str) else {
+        return;
+    };
+    let harness = std::env::var("SWB_HARNESS").unwrap_or_else(|_| harness_arg.into());
+    if event == "SessionEnd" {
+        let Ok(pid) = env("SWB_SESSION_PID") else {
+            return;
+        };
+        let Ok(host) = env("SWB_HOST") else { return };
+        let Ok(proc_start) = env("SWB_PROC_START") else {
+            return;
+        };
+        let me = format!("{harness}:{host}:{pid}:{session_id}");
+        let _ = call(
+            "POST",
+            "/v1/end",
+            Some(&json!({"me":me,"proc_start":proc_start})),
+        );
+        return;
+    }
+    let Ok(identity) = register(&harness, session_id) else {
+        return;
+    };
+    if event != "UserPromptSubmit" {
+        return;
+    }
+    let Some(me) = identity.get("agent_id").and_then(Value::as_str) else {
+        return;
+    };
+    let Ok(batch) = inbox(me) else { return };
+    let Some(messages) = batch.get("messages").and_then(Value::as_array) else {
+        return;
+    };
+    if messages.is_empty() {
+        return;
+    }
+    let context = format!(
+        "{} unread peer message(s) — use agents inbox to read and acknowledge them",
+        messages.len()
+    );
+    println!(
+        "{}",
+        json!({"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":context}})
+    );
 }
 
 fn main() -> ExitCode {
-    let subcommand = std::env::args().nth(1);
-    match subcommand.as_deref() {
-        Some("version") => println!(
-            "swb (agent-switchboard) P1a scaffold, envelope v{}, retention {}d acked / {}d unacked, authority {:?}, notice spacing {}s, hook timeout {}ms",
-            swb_proto::ENVELOPE_VERSION,
-            swb_store::RETENTION_ACKED_DAYS,
-            swb_store::RETENTION_UNACKED_DAYS,
-            swb_broker::stamped_authority(),
-            swb_agentd::NOTICE_MIN_INTERVAL_SECS,
-            swb_broker::HOOK_TIMEOUT_MS,
-        ),
-        Some("hook") => {}
+    let mut args = std::env::args().skip(1);
+    match args.next().as_deref() {
+        Some("version") => {
+            println!("swb 0.1.0 envelope v{}", swb_proto::ENVELOPE_VERSION);
+            ExitCode::SUCCESS
+        }
+        Some("hook") => {
+            if let (Some(h), Some(e), None) = (args.next(), args.next(), args.next()) {
+                hook(&h, &e);
+            }
+            ExitCode::SUCCESS
+        }
+        Some("whoami") => {
+            match env("SWB_HARNESS").and_then(|h| register(&h, &env("SWB_SESSION_ID")?)) {
+                Ok(v) => {
+                    println!("{v}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("swb whoami: {e}");
+                    ExitCode::from(3)
+                }
+            }
+        }
+        Some("inbox") => match env("SWB_AGENT_ID").and_then(|me| inbox(&me)) {
+            Ok(v) => {
+                println!("{v}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("swb inbox: {e}");
+                ExitCode::from(3)
+            }
+        },
         Some("serve") => {
             let path =
                 std::env::var("SWB_DB_PATH").unwrap_or_else(|_| "/var/lib/swb/swb.sqlite3".into());
@@ -48,31 +250,92 @@ fn main() -> ExitCode {
                     eprintln!("runtime: {e}");
                     std::process::exit(1)
                 });
-            if let Err(e) = runtime.block_on(swb_broker::serve(
+            match runtime.block_on(swb_broker::serve(
                 std::sync::Arc::new(store),
                 &listen,
                 &metrics,
             )) {
-                eprintln!("serve: {e}");
-                return ExitCode::FAILURE;
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("serve: {e}");
+                    ExitCode::FAILURE
+                }
             }
         }
-        Some(other @ ("agentd" | "whoami" | "inbox")) => {
-            eprintln!("swb {other}: not implemented until P1b/P2");
+        Some("agentd") => {
+            eprintln!("swb agentd: planned for P2");
+            ExitCode::from(3)
         }
-        _ => eprintln!("{USAGE}"),
+        _ => {
+            eprintln!("usage: swb <serve|agentd|hook <harness> <event>|whoami|inbox|version>");
+            ExitCode::from(2)
+        }
     }
-    ExitCode::from(exit_status(subcommand.as_deref()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::TcpListener;
 
     #[test]
-    fn hook_never_blocks() {
-        assert_eq!(exit_status(Some("hook")), 0);
-        assert_eq!(exit_status(Some("serve")), 0);
-        assert_eq!(exit_status(None), 2);
+    fn explicit_broker_round_trip_and_session_identity() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut request_bytes = Vec::new();
+            loop {
+                let mut chunk = [0u8; 4096];
+                let n = stream.read(&mut chunk).unwrap();
+                assert!(n > 0, "client closed before request body");
+                request_bytes.extend_from_slice(&chunk[..n]);
+                if let Some(split) = request_bytes.windows(4).position(|b| b == b"\r\n\r\n") {
+                    let header = String::from_utf8_lossy(&request_bytes[..split]);
+                    let length: usize = header
+                        .lines()
+                        .find_map(|line| line.strip_prefix("Content-Length: "))
+                        .unwrap()
+                        .parse()
+                        .unwrap();
+                    if request_bytes.len() >= split + 4 + length {
+                        break;
+                    }
+                }
+            }
+            let request = String::from_utf8_lossy(&request_bytes);
+            assert!(request.starts_with("POST /v1/register HTTP/1.1"));
+            assert!(request.contains("\"session_id\":\"session-1\""));
+            assert!(request.contains("\"proc_start\":\"start-1\""));
+            let body = r#"{"agent_id":"pi:honey:123:session-1","lease_seconds":900}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+        });
+        // One test owns these process-wide variables; no other test in this
+        // binary mutates them. The broker URL is intentionally loopback only.
+        unsafe {
+            std::env::set_var("SWB_BROKER_URL", format!("http://127.0.0.1:{port}"));
+            std::env::set_var("SWB_HOST", "honey");
+            std::env::set_var("SWB_SESSION_PID", "123");
+            std::env::set_var("SWB_PROC_START", "start-1");
+        }
+        let result = register("pi", "session-1").unwrap();
+        assert_eq!(result["agent_id"], "pi:honey:123:session-1");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn inbox_rejects_request_path_injection() {
+        assert_eq!(
+            inbox("pi:honey:1:session?limit=1000").unwrap_err(),
+            "invalid SWB_AGENT_ID"
+        );
     }
 }

@@ -33,6 +33,12 @@ fn operation(store: &Store, name: &str, args: &Value) -> Result<Value, String> {
     let mut created = true;
     let result = match name {
         "register" => store.register(args),
+        "end" => store.end(
+            args.get("me").and_then(Value::as_str).ok_or("missing me")?,
+            args.get("proc_start")
+                .and_then(Value::as_str)
+                .ok_or("missing proc_start")?,
+        ),
         "peers" => store.peers(),
         "send" => {
             let outcome = store.send(args)?;
@@ -163,6 +169,9 @@ async fn run_operation(store: Arc<Store>, name: &'static str, args: Value) -> Re
 async fn register(State(store): State<Arc<Store>>, Json(args): Json<Value>) -> Response {
     run_operation(store, "register", args).await
 }
+async fn end(State(store): State<Arc<Store>>, Json(args): Json<Value>) -> Response {
+    run_operation(store, "end", args).await
+}
 async fn send(State(store): State<Arc<Store>>, Json(args): Json<Value>) -> Response {
     run_operation(store, "send", args).await
 }
@@ -208,6 +217,7 @@ fn router(store: Arc<Store>, allowed_hosts: Vec<String>) -> Router {
     Router::new()
         .nest_service("/mcp", service)
         .route("/v1/register", post(register))
+        .route("/v1/end", post(end))
         .route("/v1/peers", get(peers))
         .route("/v1/send", post(send))
         .route("/v1/inbox", get(inbox))
