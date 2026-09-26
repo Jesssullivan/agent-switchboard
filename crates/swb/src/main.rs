@@ -41,7 +41,18 @@ fn main() -> ExitCode {
                 eprintln!("store: {e}");
                 std::process::exit(1)
             });
-            if let Err(e) = swb_broker::serve(std::sync::Arc::new(store), &listen, &metrics) {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap_or_else(|e| {
+                    eprintln!("runtime: {e}");
+                    std::process::exit(1)
+                });
+            if let Err(e) = runtime.block_on(swb_broker::serve(
+                std::sync::Arc::new(store),
+                &listen,
+                &metrics,
+            )) {
                 eprintln!("serve: {e}");
                 return ExitCode::FAILURE;
             }

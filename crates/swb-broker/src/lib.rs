@@ -1,11 +1,26 @@
-//! Tailnet broker HTTP and MCP endpoint (SWB-R02, SWB-R14, SWB-R33, SWB-R46).
-//! Audit output intentionally omits bodies until the live ACL and redaction
-//! proof required by SWB-R33/34.
+//! Tailnet broker REST and rmcp Streamable HTTP server (SWB-R02, SWB-R14,
+//! SWB-R33, SWB-R46). Audit output omits bodies until SWB-R33/34 proof.
 
+use axum::{
+    Json, Router,
+    extract::{Query, State},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::{get, post},
+};
+use rmcp::{
+    ErrorData as McpError, RoleServer, ServerHandler,
+    model::{
+        CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
+        ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
+    },
+    service::RequestContext,
+    transport::streamable_http_server::{
+        StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
+    },
+};
 use serde_json::{Value, json};
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
+use std::{collections::HashMap, io, sync::Arc};
 use swb_proto::Authority;
 use swb_store::Store;
 
@@ -14,33 +29,6 @@ pub fn stamped_authority() -> Authority {
     Authority::Peer
 }
 
-fn query(path: &str, key: &str) -> Option<String> {
-    path.split('?').nth(1)?.split('&').find_map(|pair| {
-        let (k, v) = pair.split_once('=')?;
-        (k == key).then(|| percent_decode(v))
-    })
-}
-fn percent_decode(value: &str) -> String {
-    let mut bytes = Vec::new();
-    let mut i = 0;
-    let raw = value.as_bytes();
-    while i < raw.len() {
-        if raw[i] == b'%'
-            && i + 2 < raw.len()
-            && let (Some(a), Some(b)) = (
-                (raw[i + 1] as char).to_digit(16),
-                (raw[i + 2] as char).to_digit(16),
-            )
-        {
-            bytes.push((a * 16 + b) as u8);
-            i += 3;
-            continue;
-        }
-        bytes.push(if raw[i] == b'+' { b' ' } else { raw[i] });
-        i += 1;
-    }
-    String::from_utf8_lossy(&bytes).into_owned()
-}
 fn operation(store: &Store, name: &str, args: &Value) -> Result<Value, String> {
     let mut created = true;
     let result = match name {
@@ -83,7 +71,6 @@ fn operation(store: &Store, name: &str, args: &Value) -> Result<Value, String> {
         _ => Err("unknown operation".into()),
     }?;
     if created && matches!(name, "register" | "send" | "ack") {
-        // The body and stored receipt never enter stdout before SWB-R33/34 proof.
         let body = result.get("body").and_then(Value::as_str).unwrap_or("");
         let body_hmac = if name == "send" {
             Some(store.body_hmac(body)?)
@@ -92,251 +79,301 @@ fn operation(store: &Store, name: &str, args: &Value) -> Result<Value, String> {
         };
         println!(
             "{}",
-            json!({"ts":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0,|d|d.as_secs()),
+            json!({
+                "ts":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0,|d|d.as_secs()),
                 "op":name,"me":args.get("me").or_else(||args.get("from")),"to":result.get("to"),
                 "ticket":result.get("ticket"),"ruling":result.get("ruling"),
                 "msg_id":result.get("msg_id"),"size":body.len(),"body_hmac":body_hmac,
-                "agent_id":result.get("agent_id"),"state":result.get("state")})
+                "agent_id":result.get("agent_id"),"state":result.get("state")
+            })
         );
     }
     Ok(result)
 }
-fn tools() -> Value {
-    json!({"tools":[
-        {"name":"register","description":"Register a self-asserted agent session","inputSchema":{"type":"object","required":["harness","host","pid","session_id","proc_start"]}},
-        {"name":"peers","description":"List current broker session leases","inputSchema":{"type":"object"}},
-        {"name":"send","description":"Send a peer-authority message","inputSchema":{"type":"object","required":["from","to","ticket","body"]}},
-        {"name":"inbox","description":"Fetch unacked messages","inputSchema":{"type":"object","required":["me"]}},
-        {"name":"ack","description":"Acknowledge a received message","inputSchema":{"type":"object","required":["me","msg_id"]}}
-    ]})
+
+fn tools() -> Vec<Tool> {
+    [
+        ("register", "Register a self-asserted agent session", json!({"type":"object","required":["harness","host","pid","session_id","proc_start"],"properties":{"harness":{"type":"string"},"host":{"type":"string"},"pid":{"type":"integer"},"session_id":{"type":"string"},"proc_start":{"type":"string"}}})),
+        ("peers", "List current broker session leases", json!({"type":"object","properties":{}})),
+        ("send", "Send a peer-authority message", json!({"type":"object","required":["from","to","ticket","body"],"properties":{"from":{"type":"string"},"to":{"type":"string"},"ticket":{"type":"string"},"body":{"type":"string"},"msg_id":{"type":"string"},"thread_id":{"type":"string"},"in_reply_to":{"type":"string"},"operator_directed":{"type":"boolean"},"ruling":{"type":"string"},"ttl_hours":{"type":"integer"}}})),
+        ("inbox", "Fetch unacked messages", json!({"type":"object","required":["me"],"properties":{"me":{"type":"string"},"limit":{"type":"integer"},"wait_seconds":{"type":"integer"}}})),
+        ("ack", "Acknowledge a received message", json!({"type":"object","required":["me","msg_id"],"properties":{"me":{"type":"string"},"msg_id":{"type":"string"}}})),
+    ].into_iter().map(|(name,description,schema)| Tool::new(name,description,Arc::new(schema.as_object().expect("static object schema").clone()))).collect()
 }
-fn mcp(store: &Store, request: &Value) -> Value {
-    let id = request.get("id").cloned().unwrap_or(Value::Null);
-    let method = request.get("method").and_then(Value::as_str).unwrap_or("");
-    let result = match method {
-        "initialize" => Ok(
-            json!({"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"agent-switchboard","version":"0.1.0"}}),
-        ),
-        "ping" | "notifications/initialized" => Ok(json!({})),
-        "tools/list" => Ok(tools()),
-        "tools/call" => {
-            let params = request.get("params").unwrap_or(&Value::Null);
-            let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-            let args = params.get("arguments").unwrap_or(&Value::Null);
-            operation(store, name, args).map(
-                |v| json!({"content":[{"type":"text","text":v.to_string()}],"structuredContent":v}),
-            )
-        }
-        _ => Err("unknown method".into()),
-    };
-    match result {
-        Ok(v) => json!({"jsonrpc":"2.0","id":id,"result":v}),
-        Err(e) => json!({"jsonrpc":"2.0","id":id,"error":{"code":-32602,"message":e}}),
-    }
+
+#[derive(Clone)]
+struct BrokerMcp {
+    store: Arc<Store>,
 }
-fn dispatch(
-    store: &Store,
-    method: &str,
-    path: &str,
-    body: &[u8],
-    metrics_only: bool,
-) -> (u16, &'static str, String) {
-    if metrics_only {
-        return if method == "GET" && path == "/metrics" {
-            match store.metrics() {
-                Ok(v) => (200, "text/plain; version=0.0.4", v),
-                Err(e) => (500, "text/plain", e),
-            }
-        } else {
-            (404, "text/plain", "not found".into())
-        };
+impl ServerHandler for BrokerMcp {
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new("agent-switchboard", "0.1.0"))
     }
-    if method == "POST" && path == "/mcp" {
-        return match serde_json::from_slice::<Value>(body) {
-            Ok(v)
-                if v.get("method").and_then(Value::as_str) == Some("notifications/initialized") =>
-            {
-                (202, "application/json", String::new())
-            }
-            Ok(v) => (200, "application/json", mcp(store, &v).to_string()),
-            Err(_) => (
-                400,
-                "application/json",
-                json!({"error":"invalid JSON"}).to_string(),
-            ),
-        };
-    }
-    let name = path
-        .split('?')
-        .next()
-        .unwrap_or("")
-        .strip_prefix("/v1/")
-        .unwrap_or("");
-    let args = if method == "GET" {
-        json!({"me":query(path,"me"),"limit":query(path,"limit").and_then(|s|s.parse::<u64>().ok()),"wait_seconds":query(path,"wait_seconds").and_then(|s|s.parse::<u64>().ok())})
-    } else {
-        match serde_json::from_slice::<Value>(body) {
-            Ok(v) => v,
-            Err(_) => {
-                return (
-                    400,
-                    "application/json",
-                    json!({"error":"invalid JSON"}).to_string(),
-                );
-            }
-        }
-    };
-    if (method == "POST" && matches!(name, "register" | "send" | "ack"))
-        || (method == "GET" && matches!(name, "peers" | "inbox"))
-    {
-        match operation(store, name, &args) {
-            Ok(v) => (200, "application/json", v.to_string()),
-            Err(e) => (
-                if e == "msg_id conflict" { 409 } else { 400 },
-                "application/json",
-                json!({"error":e}).to_string(),
-            ),
-        }
-    } else {
-        (
-            404,
-            "application/json",
-            json!({"error":"not found"}).to_string(),
-        )
-    }
-}
-fn handle(mut stream: TcpStream, store: &Store, metrics_only: bool) -> std::io::Result<()> {
-    stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
-    let mut request = Vec::new();
-    let mut buf = [0u8; 4096];
-    let header_end = loop {
-        let n = stream.read(&mut buf)?;
-        if n == 0 {
-            return Ok(());
-        }
-        request.extend_from_slice(&buf[..n]);
-        if let Some(p) = request.windows(4).position(|w| w == b"\r\n\r\n") {
-            break p + 4;
-        }
-        if request.len() > 65536 {
-            return Ok(());
-        }
-    };
-    let header = String::from_utf8_lossy(&request[..header_end]).into_owned();
-    let mut lines = header.lines();
-    let first = lines.next().unwrap_or("");
-    let mut words = first.split_whitespace();
-    let method = words.next().unwrap_or("");
-    let path = words.next().unwrap_or("");
-    let length = lines
-        .filter_map(|line| line.split_once(':'))
-        .find_map(|(k, v)| {
-            k.eq_ignore_ascii_case("content-length")
-                .then(|| v.trim().parse::<usize>().ok())
-                .flatten()
+    async fn list_tools(
+        &self,
+        _: Option<PaginatedRequestParams>,
+        _: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, McpError> {
+        Ok(ListToolsResult {
+            tools: tools(),
+            ..Default::default()
         })
-        .unwrap_or(0);
-    if length > 65536 {
-        return Ok(());
     }
-    while request.len() - header_end < length {
-        let n = stream.read(&mut buf)?;
-        if n == 0 {
-            return Ok(());
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        _: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, McpError> {
+        let name = request.name.into_owned();
+        if !matches!(
+            name.as_str(),
+            "register" | "peers" | "send" | "inbox" | "ack"
+        ) {
+            return Err(McpError::invalid_params("unknown tool", None));
         }
-        request.extend_from_slice(&buf[..n]);
+        let args = Value::Object(request.arguments.unwrap_or_default());
+        let store = Arc::clone(&self.store);
+        match tokio::task::spawn_blocking(move || operation(&store, &name, &args)).await {
+            Ok(Ok(value)) => Ok(CallToolResult::structured(value).into()),
+            Ok(Err(error)) => Ok(CallToolResult::error(vec![ContentBlock::text(error)]).into()),
+            Err(error) => Err(McpError::internal_error(error.to_string(), None)),
+        }
     }
-    let (status, kind, response) = dispatch(
-        store,
-        method,
-        path,
-        &request[header_end..header_end + length],
-        metrics_only,
-    );
-    let reason = match status {
-        200 => "OK",
-        202 => "Accepted",
-        400 => "Bad Request",
-        404 => "Not Found",
-        409 => "Conflict",
-        _ => "Internal Server Error",
-    };
-    write!(
-        stream,
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
-        response.len()
-    )?;
-    stream.flush()
 }
-pub fn serve(store: Arc<Store>, listen: &str, metrics_listen: &str) -> std::io::Result<()> {
-    let metrics = TcpListener::bind(metrics_listen)?;
-    let main = TcpListener::bind(listen)?;
-    let metric_store = Arc::clone(&store);
-    std::thread::spawn(move || {
-        for stream in metrics.incoming().flatten() {
-            let s = Arc::clone(&metric_store);
-            std::thread::spawn(move || {
-                let _ = handle(stream, &s, true);
-            });
+
+async fn run_operation(store: Arc<Store>, name: &'static str, args: Value) -> Response {
+    match tokio::task::spawn_blocking(move || operation(&store, name, &args)).await {
+        Ok(Ok(value)) => (StatusCode::OK, Json(value)).into_response(),
+        Ok(Err(error)) => {
+            let status = if error == "msg_id conflict" {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            (status, Json(json!({"error":error}))).into_response()
         }
-    });
-    for stream in main.incoming().flatten() {
-        let s = Arc::clone(&store);
-        std::thread::spawn(move || {
-            let _ = handle(stream, &s, false);
-        });
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error":"broker unavailable"})),
+        )
+            .into_response(),
     }
+}
+async fn register(State(store): State<Arc<Store>>, Json(args): Json<Value>) -> Response {
+    run_operation(store, "register", args).await
+}
+async fn send(State(store): State<Arc<Store>>, Json(args): Json<Value>) -> Response {
+    run_operation(store, "send", args).await
+}
+async fn ack(State(store): State<Arc<Store>>, Json(args): Json<Value>) -> Response {
+    run_operation(store, "ack", args).await
+}
+async fn peers(State(store): State<Arc<Store>>) -> Response {
+    run_operation(store, "peers", json!({})).await
+}
+async fn inbox(
+    State(store): State<Arc<Store>>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    let args = json!({"me":query.get("me"),"limit":query.get("limit").and_then(|v|v.parse::<u64>().ok()),"wait_seconds":query.get("wait_seconds").and_then(|v|v.parse::<u64>().ok())});
+    run_operation(store, "inbox", args).await
+}
+async fn metrics(State(store): State<Arc<Store>>) -> Response {
+    match tokio::task::spawn_blocking(move || store.metrics()).await {
+        Ok(Ok(value)) => (
+            StatusCode::OK,
+            [(
+                axum::http::header::CONTENT_TYPE,
+                "text/plain; version=0.0.4",
+            )],
+            value,
+        )
+            .into_response(),
+        _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+fn router(store: Arc<Store>, allowed_hosts: Vec<String>) -> Router {
+    let factory_store = Arc::clone(&store);
+    let config = StreamableHttpServerConfig::default().with_allowed_hosts(allowed_hosts);
+    let service = StreamableHttpService::new(
+        move || {
+            Ok(BrokerMcp {
+                store: Arc::clone(&factory_store),
+            })
+        },
+        LocalSessionManager::default().into(),
+        config,
+    );
+    Router::new()
+        .nest_service("/mcp", service)
+        .route("/v1/register", post(register))
+        .route("/v1/peers", get(peers))
+        .route("/v1/send", post(send))
+        .route("/v1/inbox", get(inbox))
+        .route("/v1/ack", post(ack))
+        .with_state(store)
+}
+pub async fn serve(store: Arc<Store>, listen: &str, metrics_listen: &str) -> io::Result<()> {
+    let allowed_hosts = std::env::var("SWB_MCP_ALLOWED_HOSTS")
+        .ok()
+        .map(|v| {
+            v.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_else(|| vec!["localhost".into(), "127.0.0.1".into(), "::1".into()]);
+    let main_listener = tokio::net::TcpListener::bind(listen).await?;
+    let metrics_listener = tokio::net::TcpListener::bind(metrics_listen).await?;
+    let app = router(Arc::clone(&store), allowed_hosts);
+    let metrics_app = Router::new()
+        .route("/metrics", get(metrics))
+        .with_state(store);
+    tokio::try_join!(
+        axum::serve(main_listener, app),
+        axum::serve(metrics_listener, metrics_app)
+    )?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use tower::ServiceExt;
+    async fn mcp_call(app: &Router, session: &str, id: u32, name: &str, args: Value) -> Value {
+        let call = json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":args}});
+        let request = Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("host", "localhost")
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .header("mcp-session-id", session)
+            .body(Body::from(call.to_string()))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 65536).await.unwrap();
+        let raw = std::str::from_utf8(&body).unwrap();
+        let payload = raw
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .find(|line| line.trim_start().starts_with('{'))
+            .unwrap_or(raw);
+        let value: Value =
+            serde_json::from_str(payload).unwrap_or_else(|error| panic!("{error}: {raw:?}"));
+        assert!(value.get("error").is_none(), "{value}");
+        value["result"]["structuredContent"].clone()
+    }
     #[test]
     fn broker_stamps_peer() {
         assert_eq!(stamped_authority(), Authority::Peer);
     }
     #[test]
-    fn mcp_lists_five_tools() {
-        let s = Store::memory().unwrap();
-        let r = mcp(&s, &json!({"id":1,"method":"tools/list"}));
-        assert_eq!(r["result"]["tools"].as_array().unwrap().len(), 5);
+    fn lists_five_typed_tools() {
+        assert_eq!(tools().len(), 5);
+        assert!(
+            tools()
+                .iter()
+                .all(|t| t.input_schema.contains_key("properties"))
+        );
     }
-    #[test]
-    fn conflict_does_not_expose_receipt() {
-        let s = Store::memory().unwrap();
-        let msg = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
-        let a = json!({"from":"claude:honey:1:a","to":"pi:sting:2:b","body":"A","ticket":"none","msg_id":msg});
-        s.send(&a).unwrap();
-        let b = json!({"from":"claude:honey:1:a","to":"pi:sting:2:b","body":"B","ticket":"none","msg_id":msg});
-        let (code, _, body) = dispatch(&s, "POST", "/v1/send", b.to_string().as_bytes(), false);
-        assert_eq!(code, 409);
-        assert_eq!(body, "{\"error\":\"msg_id conflict\"}");
-    }
-    #[test]
-    fn http_mcp_initialize_round_trip() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let store = Arc::new(Store::memory().unwrap());
-        let server = std::thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            handle(stream, &store, false).unwrap();
-        });
-        let body = json!({"jsonrpc":"2.0","id":7,"method":"initialize","params":{}}).to_string();
-        let mut client = TcpStream::connect(address).unwrap();
-        write!(
-            client,
-            "POST /mcp HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{body}",
-            body.len()
+    #[tokio::test]
+    async fn rmcp_streamable_http_initialize_and_tools() {
+        let app = router(Arc::new(Store::memory().unwrap()), vec!["localhost".into()]);
+        let init = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"swb-test","version":"1"}}});
+        let request = Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("host", "localhost")
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .body(Body::from(init.to_string()))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let session = response
+            .headers()
+            .get("mcp-session-id")
+            .expect("rmcp session id")
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let body = to_bytes(response.into_body(), 65536).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("agent-switchboard"));
+        let list = json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}});
+        let request = Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("host", "localhost")
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .header("mcp-session-id", &session)
+            .body(Body::from(list.to_string()))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 65536).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("register"));
+        let from = "claude:honey:1:a";
+        let to = "pi:sting:2:b";
+        let first = mcp_call(
+            &app,
+            &session,
+            3,
+            "register",
+            json!({"harness":"claude","host":"honey","pid":1,"session_id":"a","proc_start":"1"}),
         )
-        .unwrap();
-        client.flush().unwrap();
-        let mut response = String::new();
-        client.read_to_string(&mut response).unwrap();
-        server.join().unwrap();
-        assert!(response.starts_with("HTTP/1.1 200 OK"));
-        let payload: Value =
-            serde_json::from_str(response.split("\r\n\r\n").nth(1).unwrap()).unwrap();
-        assert_eq!(payload["result"]["serverInfo"]["name"], "agent-switchboard");
+        .await;
+        assert_eq!(first["agent_id"], from);
+        let second = mcp_call(
+            &app,
+            &session,
+            4,
+            "register",
+            json!({"harness":"pi","host":"sting","pid":2,"session_id":"b","proc_start":"2"}),
+        )
+        .await;
+        assert_eq!(second["agent_id"], to);
+        let peers = mcp_call(&app, &session, 5, "peers", json!({})).await;
+        assert_eq!(peers["peers"].as_array().unwrap().len(), 2);
+        let msg_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+        let sent = mcp_call(&app, &session, 6, "send", json!({"from":from,"to":to,"ticket":"none","body":"hello","msg_id":msg_id,"authority":"operator"})).await;
+        assert_eq!(sent["authority"], "peer");
+        assert_eq!(sent["seq"], 1);
+        let received = mcp_call(&app, &session, 7, "inbox", json!({"me":to})).await;
+        assert_eq!(received["messages"][0]["msg_id"], msg_id);
+        let acked = mcp_call(&app, &session, 8, "ack", json!({"me":to,"msg_id":msg_id})).await;
+        assert_eq!(acked["state"], "acked");
+        let empty = mcp_call(&app, &session, 9, "inbox", json!({"me":to})).await;
+        assert!(empty["messages"].as_array().unwrap().is_empty());
+    }
+    #[tokio::test]
+    async fn conflict_is_opaque_over_rest() {
+        let app = router(Arc::new(Store::memory().unwrap()), vec!["localhost".into()]);
+        let msg = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+        for body in ["A", "B"] {
+            let args = json!({"from":"claude:honey:1:a","to":"pi:sting:2:b","body":body,"ticket":"none","msg_id":msg});
+            let request = Request::builder()
+                .method("POST")
+                .uri("/v1/send")
+                .header("content-type", "application/json")
+                .body(Body::from(args.to_string()))
+                .unwrap();
+            let response = app.clone().oneshot(request).await.unwrap();
+            if body == "B" {
+                assert_eq!(response.status(), StatusCode::CONFLICT);
+                let content = to_bytes(response.into_body(), 65536).await.unwrap();
+                assert_eq!(content.as_ref(), br#"{"error":"msg_id conflict"}"#);
+            } else {
+                assert_eq!(response.status(), StatusCode::OK);
+            }
+        }
     }
 }
