@@ -12,8 +12,8 @@ operator question or aside is not a ruling.
 
 **Read second:** [ADR-0002](docs/adr/0002-lgtm-plane.md), the LGTM plane
 (Proposed until its PR merges). It carries the R0 rulings
-`SWB-R25`..`SWB-R32` and their amendment round `SWB-R33`..`SWB-R36` (both
-2026-09-25), and the re-sequenced phase order R0 → P1a → L0 → the SWB-R27
+`SWB-R25`..`SWB-R32`, their amendment round `SWB-R33`..`SWB-R36`
+(2026-09-25), and interview completion `SWB-R37`..`SWB-R48` (2026-09-26), and the re-sequenced phase order R0 → P1a → L0 → the SWB-R27
 decision → P1b → L1 → L2 → P2 → L3 → P3 → L4 → P4, with L5 independent of
 P4: it starts once the scrubbed TIN-4668 endpoint, its scrubber and the
 enforced ACL all exist (SWB-R36). `SWB-R02` was reworded in the same round;
@@ -116,11 +116,30 @@ These are ruled; see the ADR:
   `thread`'s max `seq`), and treat an absence as "expired from the view or
   not projected".
 
-Design constraints that are proposed, not ruled (ADR-0002 → Open rulings):
-
-- Only the broker writes `swb` telemetry: no hook, host or agentd emits
-  `swb` spans, lines or series. Host harnesses emit their own telemetry
-  under L5 (SWB-R31).
+- Agentd may emit `swb` telemetry, limited to lifecycle metadata, counts
+  and errors; no bodies or other content (SWB-R40, SWB-R47). This
+  supersedes the September 25 broker-only writer proposal. The collector
+  must prove source identity for broker/agentd lines, spans and series,
+  rejecting spoofed client identity; enrichment alone is insufficient
+  (SWB-R44). Consequential state remains broker-authoritative.
+- P1b includes Pi registration and a threaded round trip (SWB-R37), plus
+  explicit combined broker/LGTM read paths for Junie and Pi. Keep default
+  groups/profiles intact and measure combined tool budgets (SWB-R41).
+  Usable L0 reads are a functional prerequisite; only telemetry scrubbing
+  and provenance proof follow v1 and do not block broker MVP (SWB-R48).
+  Bodies stay disabled until SWB-R33/SWB-R34 qualification.
+- Repeated global `msg_id` with different sender or body returns an opaque
+  conflict without another message's receipt or metadata; exact retries
+  remain idempotent (SWB-R46).
+- Host order: Neo Claude ↔ Sting Codex acceptance, Honey/Bumble, then
+  yoga/mbp-13; PZM remains behind storage delivery (SWB-R38, SWB-R45).
+  Numeric agentd and metrics budgets remain proposals.
+- Lab P1b contract tests use a named Honey-primary, Sting-fallback lane;
+  receipts include exact source and execution host (SWB-R39).
+- Honey's Grafana MCP retargets to canonical Ingress after its precise ACL
+  grant and live Host-header canary; proxied Tempo tools need a separately
+  measured allowlist (SWB-R42). L4's dedicated tinyland.dev owner-release
+  carrier is TIN-5022, sequenced by blahaj with no date implied (SWB-R43).
 
 ## Durable notes
 

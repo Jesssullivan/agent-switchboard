@@ -10,7 +10,10 @@
   No L phase has started. *Amended 2026-09-25 (a second commit on the same
   PR):* the operator answered the first four Open rulings (TIN-4655 comment
   `f870729e`), recorded as SWB-R33 to SWB-R36 in [Rulings](#rulings); the
-  remaining open items are renumbered 1–9.
+  remaining open items were renumbered 1–9. *Amended 2026-09-26:* those
+  nine interview items are answered by SWB-R37–SWB-R45; SWB-R46–SWB-R48
+  clarify duplicate conflicts, agentd metadata and the functional MVP
+  boundary. Numeric budgets remain proposed, not ratified.
 - **Date:** 2026-09-25
 - **Linear:** TIN-4655 (R0 comment `73f1ce72-28c5-42d6-9039-1135e1c92121`,
   2026-09-25T17:57Z; premise correction `26a311db`, 18:19Z; answers to Open
@@ -24,7 +27,8 @@
   field).
 - **Amends:** [ADR-0001](0001-agent-switchboard.md) — SWB-R02 (reworded),
   the "LGTM" section, the P3 bundling, the dashboards-and-alerts line, the
-  Codex identity line, and the Push section (agentd never emits OTLP).
+  Codex identity line, and the Push section (the former agentd OTLP ban,
+  superseded by SWB-R40/SWB-R47 on 2026-09-26).
 - **Sources:**
   - the operator's direction, verbatim (TIN-4655 comment `f5f30195`):
     "similarly, pleas workflow oon the agent-switchboard regarding rollout,
@@ -291,14 +295,18 @@ path (SWB-R02, reworded).
    `peers`, `inbox`, `thread`, `claims`.
 2. **The broker writes through to LGTM after commit**, never before, never
    instead. LGTM is never in the commit path (SWB-R02).
-3. **The broker is the only writer of `swb` telemetry.** No host, no hook
-   and no agentd emits `swb` spans, `swb` lines or `swb_*` series, and none
-   of them writes to Tempo, Loki or Mimir on the broker's behalf. The broker
-   emits from its pod to the in-cluster collector. This is scoped to `swb`
-   data: host harnesses emit their own telemetry under L5 (SWB-R31), and
-   softconnect on PZM emits its own today. It is a design constraint, not a
-   ruling — comment `73f1ce72` records no answer for the plan's SWB-R17
-   row — and is listed under [Open rulings](#open-rulings) for ratification.
+3. **Broker and agentd telemetry have distinct custody** (SWB-R40,
+   SWB-R44, SWB-R47; 2026-09-26). The broker alone projects its committed
+   coordination state. Agentd may emit `swb` lifecycle metadata, counts and
+   errors, never bodies or other content; its bounded event shape remains
+   design work. The collector must prove source identity before treating
+   any line, span or series as broker or agentd output, rejecting spoofed
+   client-supplied identity; enrichment alone is insufficient. Broker tools
+   remain authoritative for consequential state. This telemetry proof is
+   post-v1 qualification, not a broker MVP gate (SWB-R48). Host harnesses
+   emit their own telemetry under L5 (SWB-R31).
+   *Superseded 2026-09-26:* the unratified September 25 proposal said the
+   broker was the only `swb` writer and prohibited agentd OTLP entirely.
 4. **LGTM is the read, query and context plane**: history, threads by
    message, peers as corroboration, graphs and dashboards, and (L5)
    harness-native telemetry. For harness telemetry Tempo is the recency
@@ -358,14 +366,16 @@ listed sources today).
 span id (critique fix): a client cannot pick an arbitrary trace id in the
 shared single-tenant Tempo, and redeliveries do not collapse. The
 protection is only as strong as `msg_id` uniqueness, and neither ADR-0001
-(Mailbox) nor the schema scoped it, so this ADR proposes the scope:
+(Mailbox) nor the schema scoped it, so SWB-R46 now fixes the scope (2026-09-26):
 **`msg_id` is globally unique at the broker.** The message table keys on
 `msg_id` alone; a `send` that reuses a stored `msg_id` with the same `from`
 and the same body hash is the idempotent retry ADR-0001 allows and returns
 the stored receipt; a `send` that reuses a stored `msg_id` with a different
-`from` or a different body is answered with the stored message's receipt
-and stores nothing, so no second message and no second span can land in
-that trace. ADR-0001 → Mailbox carries the same statement.
+`from` or a different body returns an opaque conflict without the stored
+receipt or any other stored-message metadata, and stores nothing. Exact
+retries remain idempotent; no second message or span lands in that trace.
+*Superseded 2026-09-26:* the September 25 proposal returned the stored
+receipt even for a sender/body mismatch. ADR-0001 → Mailbox carries the same statement.
 
 | Object | `trace_id` (16 bytes) | root `span_id` (8 bytes) |
 | --- | --- | --- |
@@ -560,7 +570,10 @@ Every harness that has the `grafana-tailnet` MCP reaches these: Claude
 Code, Codex and OpenCode directly, Kimi through Claude Code, Junie only in
 the mcp-mux `ops` group (`lab@3d755193 nix/lib/mcp-mux-manifest.nix:143-146`).
 A switchboard-enrolled Junie session (`tracker`) or Pi session (`agents`
-profile) has **no** LGTM tools; see [Enrollment](#enrollment-and-home-manager).
+profile) had **no** LGTM tools in the September 25 baseline. SWB-R41 and
+SWB-R48 now require an explicit combined path for both during P1b, backed
+by L0 and measured tool budgets; existing default groups/profiles stay
+intact. See [Enrollment](#enrollment-and-home-manager).
 Truth comes first from the broker's own tools; LGTM corroborates and adds
 history.
 
@@ -736,20 +749,25 @@ Corrected against `lab@3d755193` (critique fixes adopted under R0 ruling 3):
 - **Junie.** One server per launch: the default group `mux`, or a profile
   group as "an OPT-IN override per launch … each budgeted alone"
   (`mcp-mux-manifest.nix:31-32`). `ag` goes in `tracker` only (SWB-R12;
-  `tracker` = lin + gh reads, measured 87, plus 11 = 98 ≤ 100), `graf` is in
-  `ops` only (`:143-146`), and `mux` has neither. A Junie switchboard session
-  therefore has no LGTM lookup, and a Junie `ops` session has no broker. A
-  combined budgeted group would amend SWB-R12 and is an open ruling, not
-  proposed here.
+  `tracker` = lin + gh reads, measured 87, plus 11 = 98 ≤ 100). In the
+  September 25 baseline, `graf` was in `ops` only (`:143-146`), `mux` had
+  neither, and no single session had both broker and LGTM reads. A
+  combined path is now required in P1b (SWB-R41), with an explicit read
+  allowlist and measured combined budget. Preserve the existing default
+  groups. *Superseded 2026-09-26:* the combined path was an open ruling.
 - **Pi.** `zero` is the ratified default profile and a launch selects one
   profile (`vars/mcp_registry.yml:150-262`, TIN-3017). The `agents` profile
-  (SWB-R18) lands as a dedicated `source_only`,
-  `runtime_admission_required` profile with its own launcher; it excludes
-  Grafana, and the only Grafana profile, `infrastructure` (`:224`), has no
-  runtime launcher. Same gap as Junie; same open ruling.
+  (SWB-R18) uses `source_only`, `runtime_admission_required` and its own
+  launcher. The September 25 proposal excluded Grafana, and the only
+  Grafana profile, `infrastructure` (`:224`), had no runtime launcher. SWB-R37 places `agents`
+  in P1b with registration and a threaded round trip; SWB-R41 adds the
+  explicit combined broker/LGTM path in P1b, preserving `zero` and
+  measuring the combined budget. The path depends on usable L0 reads.
 - **agentd** (P2, lab `tinyland.swbAgentd`): launchd on PZM and neo, systemd
-  user unit on honey, sting and bumble; never emits OTLP; census textfile
-  only where a writable path is declared. On neo and PZM `/nix` is external,
+  user unit on honey, sting and bumble; metadata-only telemetry under
+  SWB-R40/SWB-R47, with source proof under SWB-R44 after v1 (SWB-R48);
+  census textfiles only where a writable path is declared. On neo and PZM
+  `/nix` is external,
   and a `/nix`-hosted LaunchDaemon never started on neo
   (`nix/darwin/modules/node-exporter-darwin.nix:14-33`): stage on the
   internal volume or prove user-domain exec and reboot survival as a P2 exit.
@@ -773,9 +791,11 @@ Corrected against `lab@3d755193` (critique fixes adopted under R0 ruling 3):
   `just test-bazel` / `just test-presubmit` (`justfile:789-846`) are local
   recipes. `just remote-check` is this repo's recipe (`justfile:34-38`,
   rsync plus `just check` on sting) and covers this repo only. So the lab
-  tests run on sting or honey by hand from a checkout there, and the
-  receipt says which host ran them, until lab names a remote lane
-  ([Open rulings](#open-rulings) 8).
+  by-hand lane was the September 25 fallback. SWB-R39 (2026-09-26) now
+  requires a named lab remote entrypoint targeting Honey first, Sting as
+  fallback, before the first P1b contract test. Each receipt records exact
+  source and execution host; this repo's `just remote-check` remains a
+  separate recipe, not evidence that lab's named lane is delivered.
 - **Delivery is per host and verified.** neo: the generation is produced on
   the bounded remote producer and activated through the signed-closure
   path, never compiled locally. PZM: `just nix-switch petting-zoo-mini` onto
@@ -783,7 +803,10 @@ Corrected against `lab@3d755193` (critique fixes adopted under R0 ruling 3):
   `darwinConfigurations` change. honey, sting, bumble: `just nix-switch
   <host>` or `just fleet-switch-local`. After every switch the host's own
   session appears in `ag peers` and a threaded round trip completes, in a
-  dated TIN-4655 comment (R-N13).
+  dated TIN-4655 comment (R-N13). The host order is Neo Claude ↔ Sting
+  Codex P1b acceptance, then Honey/Bumble, then yoga/mbp-13 (SWB-R38,
+  SWB-R45). PZM remains behind its storage delivery gate. This is an
+  enrollment order, not evidence that any host was switched.
 
 ### Harness-native telemetry (L5)
 
@@ -875,6 +898,11 @@ SWB-R33); the step stays in the order as the point before P1b where it had
 to exist. *Superseded 2026-09-25 (SWB-R36):* the order ended "… → L4 → P4
 → L5", and "whether L5 must also wait for P4 (Codex's live-thread proof)
 is an open question the operator answers, not this ADR (Open rulings 3)".
+*Clarified 2026-09-26 (SWB-R41, SWB-R48):* L0's usable read plane is a
+functional prerequisite for P1b's combined Junie/Pi path. Only telemetry
+proof — collector scrubbing and enforced source provenance — follows v1
+functional proof and must not block the broker MVP. Message bodies remain
+disabled until SWB-R33's live ACL and SWB-R34's redaction gates pass.
 Each L
 phase writes a `docs/agent-notes/` entry and a dated TIN-4655 comment
 (R-N13). Every exit below is observable: a query, an HTTP status, a file, a
@@ -918,9 +946,11 @@ any host); the agent asks, waits, and records the result.
   `includedTools` list first (the plan's 82 → 88 arithmetic was
   unverified; the 1.6.0 tools table adds seven Tempo tools plus others).
   Record the three 2026-09-25 timeouts against `100.74.127.80:3000` and
-  whether the bound URL moves to the canonical Ingress; that move needs a
-  tailnet-acl grant for honey (`kubernetes.dhall:64-67` grants only the L4
-  address) and is an open ruling.
+  the bound URL's move to the canonical Ingress. SWB-R42 (2026-09-26)
+  selects retargeting only after the precise tailnet ACL grant for Honey
+  and the live Host-header canary (`kubernetes.dhall:64-67` grants only
+  the L4 address in the baseline). Proxied Tempo tools wait for a separately
+  measured allowlist. *Superseded 2026-09-26:* retargeting was open.
 - **Exit, all must hold:**
   - the canary status is recorded and, if it was 403, the chosen Host
     strategy is in place and re-probed to 405/406;
@@ -1032,9 +1062,12 @@ any host); the agent asks, waits, and records the result.
   - `tracesToLogs` from the send span opens the Loki line for that
     `trace_id` in Grafana;
   - `list_tempo_attribute_values("resource.service.name")` includes
-    `swb-broker`. Source attribution is recorded as either collector-side
-    (`k8sattributes` or a per-namespace pipeline) or explicitly accepted as
-    spoofable — the collector adds no `k8sattributes` today
+    `swb-broker`. SWB-R44 requires collector proof of source identity and
+    rejection of spoofed client identity for broker and agentd lines,
+    spans and series. Enrichment alone does not pass. This proof follows
+    v1 functional proof (SWB-R48); broker tools remain authoritative.
+    *Superseded 2026-09-26:* the design allowed explicitly accepted
+    spoofability; the September 25 collector had no `k8sattributes`
     (`otel-collector.yaml:29-36`);
   - reconciliation drill (the operator makes the collector unreachable
     from the broker, by the NetworkPolicy or by scaling the collector,
@@ -1089,7 +1122,9 @@ any host); the agent asks, waits, and records the result.
 #### L4 — Tempo owner-release upgrade (after P3)
 
 - **Owner:** tinyland.dev owner release, sequenced by blahaj; requested by
-  ticket from this repo. An Opus 5.5 refutation pass on the upgrade plan
+  dedicated linked ticket [TIN-5022](https://linear.app/tinyland/issue/TIN-5022)
+  under SWB-R43 (2026-09-26), with no delivery date implied. An Opus 5.5
+  refutation pass on the upgrade plan
   precedes scheduling (the plan's routing, recorded in R0).
 - **Scope.** Tempo 2.7.2 → 3.x monolithic (no Kafka;
   `tempo-cli migrate config --mode=monolithic`), or 2.9/2.10 as an interim;
@@ -1115,14 +1150,18 @@ any host); the agent asks, waits, and records the result.
 TIN-4668 endpoint, its scrubber, and SWB-R27; its place after P4 is an open
 question". The operator's answer, "Start once its three gates hold
 (Recommended)", makes L5 independent of P4; it can start before, during or
-after any P phase once the gates below hold.
+after any P phase once the gates below hold. *Clarified 2026-09-26
+(SWB-R48):* telemetry qualification is post-v1 functional proof and cannot
+hold the P1b broker MVP; the existing body gates still apply.
 
 - **Owner:** tinyland.dev owner release (the collector is tinyland.dev's:
   the TIN-4668 receiver `otlp/tailnet` on 14318, Service
   `otlp-harness-http-tailscale` 4318 → 14318, redaction processor,
   `traces/tailnet` key allowlist and `logs/tailnet` pipeline; the PR is
   being built by the blahaj seat), sequenced by blahaj; `xoxd-ai/lab`
-  (exporter rendering, Claude Code and Kimi first, then Codex);
+  (exporter rendering, Claude Code and Kimi first, then Codex; host order
+  after Neo–Sting acceptance is Honey/Bumble then yoga/mbp-13, with PZM
+  behind storage delivery, SWB-R38/SWB-R45);
   `Jesssullivan/tailnet-acl` (public Dhall) for ACL A and any grant the
   endpoint needs; `xoxd-ai/blahaj` (TIN-4670, the old Services'
   disposition).
@@ -1197,9 +1236,12 @@ after any P phase once the gates below hold.
   Tempo trace with no credentials (`registry.md:293`;
   `retained-observability-tailnet-services.yaml:58-125`;
   `kubernetes.dhall:39-46,60-67`; probes in `875fc21f`). LGTM dialog records
-  are as trustworthy as the broker's stamping; readers filter on
-  `resource.service.name="swb-broker"` and accept spoofability unless
-  tinyland.dev adds collector-side attribution. Closing the write path and
+  require proved source identity under SWB-R44 before being treated as
+  broker or agentd output; filtering `resource.service.name` or enriching
+  attributes alone does not establish that. SWB-R48 places this proof
+  after v1 functional acceptance and keeps consequential state in broker
+  tools. *Superseded 2026-09-26:* accepted spoofability was an option.
+  Closing the write path and
   applying read ACL A is TIN-4670, sequenced after the TIN-4668 build;
   until it lands the old 4317/4318 names remain a bypass of the scrubber
   for any host that uses them, and lab's exporters never do (`1001c0fb`).
@@ -1265,10 +1307,9 @@ after any P phase once the gates below hold.
   per session against Mimir's 1 M cap.
 - **neo.** agentd is measured against the numeric bound proposed in
   ADR-0001 → P2 (RSS ≤ 32 MiB, CPU ≤ 36 s per hour, ≤ 10 wakeups per
-  minute at steady state); the exporter lives in the broker; every neo
-  generation is remote-produced; the lab contract tests run on sting or
-  honey by hand until lab names a remote lane (Enrollment, Open rulings
-  8).
+  minute at steady state); agentd telemetry remains metadata only;
+  every neo generation is remote-produced; lab contract tests use a named
+  Honey-primary, Sting-fallback lane with source/host receipts (SWB-R39).
 - **Darwin exec from external `/nix`** on neo and PZM (the node-exporter
   precedent; the TIN-4405 `/nix`-dark incident; PZM's unfinished USB HM
   activation).
@@ -1318,47 +1359,29 @@ critique; each is settled by the exit that names it):
 
 ## Open rulings
 
-Not decided here. Each needs an explicit operator statement or a structured
-interview answer (R-N13); this ADR adds none of its own. Where the operator
-has already spoken elsewhere, the item says so and asks only for the
-carrier.
+*Amended 2026-09-26 (R-N13).* None of the nine interview questions remains
+unanswered. Numeric agentd and Mimir budgets remain **proposed**, to be
+confirmed or replaced before their respective drills; SWB-R45 did not
+ratify those numbers. Event shapes, allowlists and proof mechanisms are
+implementation work under the rulings, not new operator decisions.
 
-*Amended 2026-09-25.* The first four items were answered in TIN-4655
-comment `f870729e` and moved to [Rulings](#rulings): 1 (SWB-R27's carrier
-and enforcement gate) is SWB-R33, 2 (the Tempo ban's scope for harness
-content) is SWB-R35, 3 (whether L5 waits for P4) is SWB-R36, and 4 (`swb`
-bodies and the scrubber) is SWB-R34. The remaining items, formerly 5–13,
-are renumbered 1–9 in order; the comment leaves them "for a later round".
-Earlier TIN-4655 comments and the refutation table below use the old
-numbers.
+For dated-history references, the September 25 list (formerly 5–13,
+renumbered 1–9 after SWB-R33–SWB-R36) resolved as follows:
 
-1. **agentd never emits OTLP** (ADR-0001 → Push; principle 3 here) is a
-   design constraint carried under SWB-R17's "tiny" bound; comment
-   `73f1ce72` records no answer for the plan's SWB-R17 row. It is asked as
-   its own ruling so AGENTS.md can list it as ruled.
-2. **The Pi `agents` profile's phase.** SWB-R18 rules that it ships in v1;
-   ADR-0001 places it in P1b as "proposed, not ruled". Which phase carries
-   it is asked.
-3. **yoga and mbp-13.** The TIN-4655 description names yoga among the
-   participating hosts and TIN-4668 lists neo, PZM, honey, bumble, sting,
-   yoga and mbp-13; no P or L phase enrolls or excludes either.
-4. **Junie and Pi with both the broker and LGTM in one session:** a new
-   budgeted mcp-mux group (for example `ag` plus explicitly listed `graf`
-   read tools) or a Pi profile, which would amend SWB-R12 / SWB-R18.
-5. **Retargeting the Grafana MCP** from `100.74.127.80:3000` to the
-   canonical Ingress, which needs a tailnet-acl grant for honey and
-   proxied-tools policy once Tempo exposes `/api/mcp`.
-6. **L4's schedule and ticket carrier** in the tinyland.dev owner release,
-   sequenced by blahaj.
-7. **Collector-side source attribution** (`k8sattributes` or a
-   per-namespace pipeline) versus explicitly accepted spoofability.
-8. **A named lab remote test lane.** lab at `3d755193` has none
-   (Enrollment); until it does, the lab contract tests for this design
-   run on sting or honey by hand and the receipt names the host. Owner:
-   lab; needed before the first P1b contract test lands.
-9. **The L5 host order** beyond "Claude Code and Codex first" (TIN-4668),
-   and confirmation or replacement of the proposed numeric bounds (neo
-   agentd in ADR-0001 → P2; Mimir series growth in L5) before each drill.
+| Former item | Answer |
+| --- | --- |
+| 1: agentd telemetry | SWB-R40 allows it; SWB-R47 limits it to metadata |
+| 2: Pi phase | SWB-R37: P1b, registration and threaded round trip |
+| 3: yoga/mbp-13 | SWB-R38: after Neo–Sting acceptance; SWB-R45 orders the tranche |
+| 4: Junie/Pi combined access | SWB-R41: P1b, defaults preserved, budgets measured; L0 prerequisite retained by SWB-R48 |
+| 5: Grafana target | SWB-R42: retarget after ACL and canary proof; separately measured proxied-tool allowlist |
+| 6: L4 carrier | SWB-R43: dedicated linked owner ticket TIN-5022; blahaj sequences, no date implied |
+| 7: telemetry source | SWB-R44: enforced source proof; SWB-R48 puts qualification after v1 |
+| 8: lab test lane | SWB-R39: named Honey-primary, Sting-fallback entrypoint, source/host receipts |
+| 9: host order and budgets | SWB-R45: Honey/Bumble then yoga/mbp-13 after Neo–Sting; PZM storage gate; numbers remain proposed |
+
+The original question wording and all earlier supersessions remain in git
+history; the dated refutation table below retains its historical numbers.
 
 ## Rulings
 
@@ -1368,7 +1391,9 @@ and TIN-4655 comment `f870729e-dbcb-451d-97c3-0c1e1f8e9641`
 (2026-09-25T19:11Z, "Open rulings on ADR-0002 / agent-switchboard #4",
 operator interview) for SWB-R33 to SWB-R36, which answer this ADR's former
 Open rulings 1–4. Operator questions and
-asides are not rulings (R-N13). SWB-R02's rewording is recorded in
+asides are not rulings (R-N13). September 26 carriers are `2aeb4bee`
+(SWB-R37–SWB-R39), `8a524db4` (SWB-R40–SWB-R42), `f1893e4c`
+(SWB-R43–SWB-R47) and `ef8a1cd2` (SWB-R48). SWB-R02's rewording is recorded in
 ADR-0001's table. The critique fixes were adopted as a block under ruling
 3 and are design, not separate IDs; the table after this one lists where
 each landed.
@@ -1397,6 +1422,18 @@ wording.
 | SWB-R34 | 2026-09-25 | `f870729e` item 2, `swb` bodies and the scrubber: "Redact in the loki.process stage (Recommended)" | tinyland.dev's `loki.process` stage for the broker namespace gets a redaction step with the same pattern set as the TIN-4668 collector scrubber. |
 | SWB-R35 | 2026-09-25 | `f870729e` item 3, Tempo scope for harness telemetry, the operator's words: "I think tool calls, files refenced etc would be suitable for tempo, recently accessed tickets, files, paths etc in timeserice db like tempo seems like valuable  time efficient lookup for agents orienting to a complex workstream or sprint / epic / codebase." And the clarification: "indeed; we are treating tempo as a timespace efficent recency == relacence, for miniizing repeated mining calls to loki; this is using tempo as is it architected, not as it is intended." | Tempo is the recency index, where recency means relevance. Tool calls, referenced files and paths, and recently accessed tickets are span attributes. Bodies and full content (prompts, tool output) stay in Loki; that also fits Tempo's 2 KiB attribute cap. The aim is to cut repeated Loki mining when an agent orients to a workstream, sprint, epic or codebase. |
 | SWB-R36 | 2026-09-25 | `f870729e` item 4, L5 timing: "Start once its three gates hold (Recommended)" | L5 is independent of P4. It starts when the TIN-4668 scrubbed endpoint, the scrubber and the enforced ACL all exist. |
+| SWB-R37 | 2026-09-26 | `2aeb4bee`, item 2: "P1b with broker MVP (recommended)." | Pi's `agents` profile ships in P1b; acceptance includes registration and a threaded round trip. Preserve the existing default until explicit `agents` selection. |
+| SWB-R38 | 2026-09-26 | `2aeb4bee`, item 3: "After Neo–Sting acceptance (recommended)." | yoga and mbp-13 enroll after the initial Neo Claude ↔ Sting Codex P1b round trip; each host needs delivery evidence. |
+| SWB-R39 | 2026-09-26 | `2aeb4bee`, item 8: "Honey primary, Sting fallback (recommended)." | P1b contract tests use a named lab remote entrypoint targeting Honey, with Sting fallback; every receipt names exact source and execution host. Neo does no builds. |
+| SWB-R40 | 2026-09-26 | `8a524db4`, item 1: "Allow agentd `swb` telemetry." | Supersedes the proposed broker-only writer constraint. Event shape and custody need bounded design; no body emission or process-control authority. |
+| SWB-R41 | 2026-09-26 | `8a524db4`, item 4: "Combine during P1b." | P1b includes explicit combined broker plus LGTM read paths for Junie and Pi, preserving default groups/profiles and measuring combined tool budgets. Usable L0 reads are a functional prerequisite. |
+| SWB-R42 | 2026-09-26 | `8a524db4`, item 5: "Retarget after proof (recommended)." | Honey's Grafana MCP moves to the canonical Ingress only after the precise ACL grant and live Host-header canary; proxied Tempo tools wait for a separately measured allowlist. |
+| SWB-R43 | 2026-09-26 | `f1893e4c`, item 6: "Dedicated linked owner ticket (recommended)." | L4 is carried by tinyland.dev owner-release ticket TIN-5022, linked to TIN-4655 and sequenced by blahaj. No delivery date implied. |
+| SWB-R44 | 2026-09-26 | `f1893e4c`, item 7: "Enforce source attribution (recommended)." | Collector proof of source identity precedes treating any line/span/series as broker or agentd output. Reject spoofed client identity; enrichment alone is insufficient; the broker remains authority for consequential state. |
+| SWB-R45 | 2026-09-26 | `f1893e4c`, item 9: "Honey/Bumble, then yoga/mbp-13 (recommended)." | Follows Neo Claude ↔ Sting Codex P1b acceptance. PZM stays behind storage delivery. Numeric agentd and metric budgets remain proposals. |
+| SWB-R46 | 2026-09-26 | `f1893e4c`, duplicate clarification: "Reject with opaque conflict (recommended)." | A repeated global `msg_id` with different sender or body is rejected without another message's receipt or metadata. Exact retries remain idempotent. |
+| SWB-R47 | 2026-09-26 | `f1893e4c`, telemetry shape: "Metadata only: lifecycle, counts, errors (recommended)." | Agentd `swb` telemetry carries no bodies or other content. SWB-R33/SWB-R34 continue to gate any separate body path. |
+| SWB-R48 | 2026-09-26 | `ef8a1cd2`: "Only telemetry proof follows v1 (recommended)." | P1b still includes the combined Junie/Pi broker-plus-LGTM path, usable L0 prerequisite and measured tool budgets. Collector scrubbing and enforced telemetry provenance are post-v1 qualification and do not block the broker MVP. Bodies stay disabled until SWB-R33 live ACL proof and SWB-R34 redaction qualification. |
 
 **Critique fixes carried (R0 ruling 3, "Critique fixes the ADR revision
 must carry"):**
@@ -1457,6 +1494,14 @@ Estate rulings this design depends on, beyond ADR-0001's list:
   LGTM MCP, 7-day retention.
 
 ## Refutation review (2026-09-25)
+
+*Historical record, clarified 2026-09-26:* the table below describes the
+September 25 review, not current open decisions. SWB-R37–SWB-R48 resolve
+the later interview: in particular P1b now consumes L0 for Junie/Pi,
+agentd metadata telemetry is allowed, Pi placement is ruled, and opaque
+conflicts replace the proposed stored-receipt response. See current
+[Open rulings](#open-rulings) for the resolved mapping and remaining
+proposed numeric budgets.
 
 SWB-R30: "Opus refutes it, then a PR goes through the fork." The Opus
 refutation of the first draft returned "ship-with-fixes" with 23 problems

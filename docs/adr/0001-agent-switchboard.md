@@ -124,13 +124,15 @@ registered once on the tailnet so that new harness instances spawn nothing.
   - Host observations only corroborate a lease; they never renew it.
 - **Mailbox:**
   - ULID `msg_id`, which the client may supply for idempotent retries;
-  - *Stated 2026-09-25 (refutation fix, proposed):* `msg_id` is globally
+  - *Amended 2026-09-26 (SWB-R46):* `msg_id` is globally
     unique at the broker. A `send` that reuses a stored `msg_id` with the
     same `from` and the same body hash is the idempotent retry and returns
     the stored receipt; one with a different `from` or body is answered
-    with the stored message's receipt and stores nothing. This is what
-    makes the broker-derived trace id in ADR-0002 safe to derive from
-    `msg_id` alone;
+    with an opaque conflict, returns no stored receipt or metadata, and
+    stores nothing. Exact retries remain idempotent.
+    The global key makes the broker-derived trace id in ADR-0002 safe
+    to derive from `msg_id` alone. *Superseded 2026-09-26:* the proposal
+    returned the stored receipt even when the sender or body differed;
   - `thread_id` plus a per-thread `seq`, assigned inside the write
     transaction;
   - at-least-once delivery, with a `delivery_count` and receiver-side dedupe;
@@ -248,16 +250,18 @@ registered once on the tailnet so that new harness instances spawn nothing.
     goes through `settings.json` `mcpServers`: that binding is a legacy
     escape hatch that warns, and activation prunes registry-managed servers
     out of it. The contract test asserts the `~/.claude.json` projection.
-- **Junie (SWB-R12):** through the mcp-mux `tracker` group, never `mux`.
-  Junie dials exactly one group per launch, so a `tracker` session has the
-  broker and no Grafana tools: the LGTM lookups in ADR-0002 are not
-  reachable from it (stated 2026-09-25; a combined budgeted group would
-  amend this ruling and is not proposed here).
-- **Pi (SWB-R18):** an `agents` Pi MCP profile ships in v1. It changes Pi's
-  zero-MCP default for that profile only. Pi can also use `swb inbox` through
-  its bash tool. Pi selects one profile, so an `agents` session has no
-  Grafana tools either, and the only Grafana profile, `infrastructure`, has
-  no runtime launcher (stated 2026-09-25).
+- **Junie (SWB-R12, SWB-R41):** the existing broker path is the mcp-mux
+  `tracker` group, never `mux`. P1b also delivers an explicitly selected
+  combined broker plus LGTM read path, with its combined tool budget
+  measured. Existing default groups stay intact.
+- **Pi (SWB-R18, SWB-R37, SWB-R41):** the `agents` profile ships in P1b
+  through `pi_mcp_profile_policy`, including registration and a threaded
+  round trip. P1b includes an explicit combined broker plus LGTM read
+  path with a measured tool budget. Pi's existing `zero` default remains
+  until explicit profile selection. Pi can also use `swb inbox` via bash.
+- *Superseded 2026-09-26:* the September 25 design left Junie's `tracker`
+  and Pi's `agents` sessions without Grafana, left Pi's phase proposed,
+  and deferred whether to provide a combined path to the interview.
 
 ### Push
 
@@ -271,17 +275,16 @@ registered once on the tailnet so that new harness instances spawn nothing.
     bodies. This respects the neo teletype load budget.
   - It only goes live once Claude's socket framing has been captured from a
     real SendMessage.
-  - *Design constraint, 2026-09-25, not ruled:* agentd never emits OTLP
-    and never writes to Tempo, Loki or Mimir on any host. The broker is the
-    only writer of `swb` telemetry (ADR-0002, principle 3). agentd's one
-    metrics surface is the P3 census textfile, and neo does not get that
-    either, because neo has no textfile directory. Provenance: the R0
-    plan's "SWB-R17" row, recommended default "Yes", carried as design
-    under SWB-R17's "tiny" bound and the write-through design (SWB-R02
-    reworded), which leaves no other writer. Comment `73f1ce72` records no
-    answer for that row, so this is **not** a ruling and is not listed as
-    one anywhere; it is asked as its own ruling in ADR-0002 → Open rulings
-    1 (numbered 5 before the 2026-09-25 amendment).
+  - *Amended 2026-09-26 (SWB-R40, SWB-R47):* agentd may emit `swb`
+    telemetry, limited to lifecycle metadata, counts and errors, with no
+    message bodies or other content. Its bounded event shape and custody
+    remain design work. Collector proof of source identity is required by
+    SWB-R44; that telemetry qualification follows v1 functional proof
+    (SWB-R48) and does not block the broker MVP. The broker remains the
+    authority for consequential state. Census textfiles still require a
+    declared writable path; neo has no textfile directory.
+    *Superseded 2026-09-26:* the unratified September 25 design said agentd
+    never emits OTLP anywhere and the broker is the only `swb` writer.
   - On neo and PZM `/nix` is an external volume, and a `/nix`-hosted
     LaunchDaemon on neo never started (dyld "file system sandbox blocked
     open()", lab `nix/darwin/modules/node-exporter-darwin.nix:14-33` at
@@ -469,11 +472,11 @@ ruling IDs are recorded, with their quotes, in
 | ADR revision | (none) | A Fable lane revises ADR-0001 and adds ADR-0002 with every critique fix; Opus refutes; PR through the fork | SWB-R30 |
 | Harness-native telemetry | Out of scope | L5: all on, full content, scrubbed at the collector | SWB-R31 |
 | Telemetry ingest | (none) | A tailnet OTLP/HTTP endpoint on the existing collector, requested as TIN-4668; lab exporters gated off until **the scrubbed endpoint** (`otlp-harness-http-tailscale`, 4318 → 14318) exists, and never pointed at the retained `otlp-observability-http:4318` (`1001c0fb`) | SWB-R32 |
-| agentd | Tiny on neo | Never emits OTLP anywhere; census only; `/nix` exec proof before P2 exits | Design constraint, not ruled (ADR-0002 → Open rulings 1, formerly 5); the `/nix` proof is a critique fix |
+| agentd (September 25 proposal; superseded by SWB-R40/SWB-R47) | Tiny on neo | Never emits OTLP anywhere; census only; `/nix` exec proof before P2 exits | Design constraint, not ruled (ADR-0002 → Open rulings 1, formerly 5); the `/nix` proof is a critique fix |
 | Codex identity | `notify` hook | `swb whoami`; `notify` stays runtime-owned; no new table | Critique fix (R0 ruling 3) |
 | Claude/Kimi enrollment | (unstated) | registry → export-registries → `tinyland.mcp` → `~/.claude.json` | Critique fix |
 | Claude hooks | (unstated priority) | Merged at `mkDefault`, with a contract test that the three fail-closed guards survive | Critique fix |
-| Junie and Pi lookup | (unstated) | One Junie server, one Pi profile: a switchboard session has no LGTM lookup | Critique fix |
+| Junie and Pi lookup (September 25 gap; resolved by SWB-R41) | (unstated) | One Junie server, one Pi profile: a switchboard session has no LGTM lookup | Critique fix |
 | Projection loss | (n/a) | Transactional outbox plus a reconciliation gauge; "absent" means expired or not projected | Critique fix |
 | Lifecycle spans | (n/a) | Each lifecycle step is its own trace, linked back to the send span | Critique fix |
 | Thread enumeration | (n/a) | Broker-only | Critique fix |
@@ -496,8 +499,13 @@ is independent of P4 and starts once its three gates hold (SWB-R36).
 The L phases are specified
 in [ADR-0002](0002-lgtm-plane.md); this list keeps the P phases and names
 the L phase between each pair. L0 comes after P1a in the sequence, and its
-only technical gate is the canary (SWB-R29); P1b depends on P1a's exit and
-the SWB-R27 decision, and nothing in P1b consumes L0's output. Every drill
+canary gate remains SWB-R29; P1b depends on P1a's exit, the recorded
+SWB-R27 decision, and L0's usable read plane for the combined Junie/Pi
+path (SWB-R41, SWB-R48). Collector scrubbing and telemetry provenance
+proof follow v1 functional proof; they do not block the broker MVP.
+Bodies remain off until the live ACL and redaction gates pass (SWB-R33,
+SWB-R34). *Superseded 2026-09-26:* "nothing in P1b consumes L0's output".
+Every drill
 that stops, restarts or scales a process is performed by the operator
 (R-N11); the agent asks and records the result.
 *Superseded (P0):* the list read P0, P1a, P1b, P2, P3 ("Junie and LGTM"),
@@ -518,7 +526,8 @@ P4, with the scrape job, dashboard and alert drill bundled into P3.
     admission, `xoxd-ai/tinyland-infra#106`, which the GF/infra lane
     sequences, not lab.
 - **L0: read plane in lab.** After P1a in sequence; the canary (SWB-R29)
-  is its only technical gate. Scope and exit: ADR-0002.
+  and retargeting ACL proof (SWB-R42) gate its delivery. Scope and exit:
+  ADR-0002. Usable reads are required for the P1b combined path (SWB-R41).
 - **SWB-R27 decision.** Before P1b: the body-read ACL audit, as a dated
   TIN-4655 comment. Its scope is in ADR-0002 → Risks and L1.
   - *Done 2026-09-25:* TIN-4655 comment `f870729e` carries the TIN-4668
@@ -532,7 +541,8 @@ P4, with the scrape job, dashboard and alert drill bundled into P3.
   - The broker ships `register`, `peers`, `send`, `inbox` and `ack`, stamps
     `authority: peer`, validates envelope v3, serves `/metrics`, writes the
     audit stream to stdout after commit — without bodies until ACL A is
-    enforced live (SWB-R19, SWB-R27, SWB-R33) — and runs on SQLite on a
+    enforced live and redaction is qualified (SWB-R19, SWB-R27, SWB-R33,
+    SWB-R34) — and runs on SQLite on a
     PVC. The
     transactional outbox and the Tempo projector land in L2 (ADR-0002).
     - *Superseded (P0):* "writes the audit stream with bodies (SWB-R19)".
@@ -557,10 +567,18 @@ P4, with the scrape job, dashboard and alert drill bundled into P3.
   - Codex registers through `swb whoami` (Identity). No `notify` change.
   - Lab adds a new `peer-dialog` skill, with #1920 as its degraded transport
     and the ADR-0002 lookup recipes with their caveats.
-  - *Proposed, not ruled:* the Pi `agents` profile (SWB-R18) lands here,
-    beside the registry entries, through lab's `pi_mcp_profile_policy`
-    (its phase is ADR-0002 → Open rulings 2, formerly 6; it is placed
-    once, here).
+  - Pi's `agents` profile lands here (SWB-R37) through lab's
+    `pi_mcp_profile_policy`. Both Junie and Pi get explicit combined broker
+    plus LGTM read access with measured tool budgets (SWB-R41, SWB-R48),
+    preserving existing default groups/profiles. L0 is a functional
+    prerequisite for that path; telemetry scrubbing and provenance proof
+    are post-v1 qualification, with bodies kept disabled until qualified.
+  - Lab contract tests use a named remote entrypoint: Honey primary,
+    Sting fallback, with exact source and execution host in each receipt
+    (SWB-R39). Neo remains the teletype seat.
+  - Host enrollment follows Neo Claude ↔ Sting Codex acceptance with
+    Honey/Bumble, then yoga/mbp-13; PZM stays behind storage delivery
+    (SWB-R38, SWB-R45). Each host still needs delivery evidence.
   - Exit, all must hold:
     - Codex registration is evidenced: a Codex session on sting registers
       with an `agent_id` whose `pid` and `session_id` are its own, and the
@@ -579,8 +597,10 @@ P4, with the scrape job, dashboard and alert drill bundled into P3.
     - the registry URL matches the live hostname, proven by a live probe
       receipt from a seat, because a hermetic test cannot see the tailnet
       (critique fix); the contract test pins the URL string only;
-    - if the Pi profile lands here: Pi profile selection registers a
-      session and a round trip completes (proposed with the placement).
+    - explicit Pi profile selection registers a session and completes a
+      threaded round trip (SWB-R37);
+    - both Junie and Pi complete broker and LGTM read calls in the same
+      selected session, with measured combined tool budgets (SWB-R41).
 - **L1: Loki bodies and audit** and **L2: Tempo dialog projection.** After
   P1b, in that order. ADR-0002.
 - **P2: claims, handoff, push.** Repos: this one, blahaj (the Linear sops
@@ -588,7 +608,8 @@ P4, with the scrape job, dashboard and alert drill bundled into P3.
   bumble).
   - Claims ship with optional `exclusive` (SWB-R16).
   - Linear read and handoff-receipt comments ship (SWB-R15).
-  - agentd includes neo (SWB-R17). It never emits OTLP (Push).
+  - agentd includes neo (SWB-R17). Its telemetry is metadata only
+    (SWB-R40, SWB-R47; Push).
   - Exit, all must hold:
     - two advisory claims on one TIN both succeed and each reports the
       overlap;
@@ -605,13 +626,16 @@ P4, with the scrape job, dashboard and alert drill bundled into P3.
       wakeups per minute (critique fix: "recorded" alone had no
       threshold). The numbers are proposals with an owner (lab) and a
       deadline (the P2 plan comment, before the drill), confirmed or
-      replaced there (ADR-0002 → Open rulings 9, formerly 13); PZM is measured against
-      the same numbers.
+      replaced there (ADR-0002 → Open rulings; SWB-R45 leaves numeric
+      budgets proposed); PZM is measured against the same numbers.
 - **L3: presence and graph metrics, dashboard, alert.** After P2. ADR-0002.
 - **P3: Junie and census.**
-  - Lab adds an `ag` upstream in `nix/lib/mcp-mux-manifest.nix`, in the
-    `tracker` group and never in `mux` (SWB-R12), plus the census textfile
-    with a declared writable path per host (neo skipped).
+  - Lab verifies the existing `ag` upstream and Junie reach delivered
+    during P1b (SWB-R41), and adds the census textfile with a declared
+    writable path per host (neo skipped).
+  - *Superseded 2026-09-26 (SWB-R41):* the initial Junie broker enrollment
+    was scheduled here. Its combined broker/LGTM functional path is P1b;
+    P3 retains census and follow-on verification.
   - *Superseded (P0):* "tinyland.dev adds the scrape job. blahaj adds the
     dashboard and an alert." Those are L3 (SWB-R28).
   - Exit, all must hold:
@@ -628,7 +652,7 @@ P4, with the scrape job, dashboard and alert drill bundled into P3.
     receipt exists before any daemon push is enabled.
   - *Superseded (draft of this revision, 2026-09-25):* a P4 heading
     "Pi profile, Codex registration and push" that carried the Pi profile
-    a second time; the Pi profile is placed once, in P1b as proposed.
+    a second time; the Pi profile is now placed once, in P1b (SWB-R37).
 - **L5: harness-native telemetry.** Independent of P4; it starts once its
   three gates hold — the TIN-4668 scrubbed endpoint, its scrubber and the
   enforced ACL (ACL A applied by TIN-4670) — whatever P phase is current
@@ -645,7 +669,7 @@ P4, with the scrape job, dashboard and alert drill bundled into P3.
 Quotes are the operator's words or picks as recorded in the cited source.
 Operator questions and asides are not rulings (R-N13). The R0 LGTM-round
 rulings, SWB-R25 to SWB-R32, and their amendment round, SWB-R33 to SWB-R36
-(TIN-4655 `f870729e`), are recorded in
+(TIN-4655 `f870729e`), plus SWB-R37 to SWB-R48 (2026-09-26), are recorded in
 [ADR-0002 → Rulings](0002-lgtm-plane.md#rulings) with the same discipline;
 SWB-R22 to SWB-R24 are the P1a substrate rulings carried by the P1a
 receipts (TIN-4655 comments `6274ecbd` and `fd195b08`) and their PRs.
@@ -668,7 +692,7 @@ receipts (TIN-4655 comments `6274ecbd` and `fd195b08`) and their PRs.
 | SWB-R14 | 2026-09-25 | TIN-4655 comment `643df6af` (P0 round two) | Authority: "Operator-directed flag with a ruling link". The broker still stamps `authority: peer`. |
 | SWB-R15 | 2026-09-25 | same | Linear: "Read + comment". Read title, state and assignee; post handoff receipts as comments. Never move state or edit descriptions. |
 | SWB-R16 | 2026-09-25 | same | Claims: "Optional exclusive, off by default". A second exclusive claim returns `held_by` and does not record. |
-| SWB-R17 | 2026-09-25 | same | "Push adapter on neo too". Tiny: long-poll, at most one notice per 60 s, no bodies. (The agentd-never-emits-OTLP constraint in Push is design, not part of this ruling; ADR-0002 → Open rulings 1, formerly 5.) |
+| SWB-R17 | 2026-09-25 | same | "Push adapter on neo too". Tiny: long-poll, at most one notice per 60 s, no bodies. (The former agentd-never-emits-OTLP proposal was not part of this ruling and was superseded by SWB-R40/SWB-R47 on 2026-09-26.) |
 | SWB-R18 | 2026-09-25 | same | "Pi profile in v1". An `agents` Pi MCP profile, changing Pi's zero-MCP default for that profile only. |
 | SWB-R19 | 2026-09-25 | same | "Message bodies in Loki". Retention and access follow Loki's. *Additions 2026-09-25 (SWB-R26, SWB-R27):* never Tempo attributes; stdout → Alloy with a `loki.process` stage; out of stdout until the body-read ACL is decided, before P1b. *Additions 2026-09-25 (SWB-R33, SWB-R34):* bodies ship only once ACL A is enforced live; the `loki.process` stage gets a redaction step with the TIN-4668 scrubber's pattern set. |
 | SWB-R20 | 2026-09-25 | same | Unchanged: Codex push waits for a recorded live-thread proof. |

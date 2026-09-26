@@ -28,7 +28,13 @@ queue, and the fork convention. The crates are compiling stubs, and the
 broker MVP lands in P1b. The phase order is R0 → P1a → L0 → the SWB-R27
 decision → P1b → L1 → L2 → P2 → L3 → P3 → L4 → P4; L5 is independent of P4
 and starts once its three gates hold (SWB-R36; ADR-0001 → Phases; the L
-phases are in ADR-0002).
+phases are in ADR-0002). P1b includes Pi registration and a threaded round
+trip, and explicit combined broker/LGTM read paths for Junie and Pi with
+measured tool budgets and existing defaults preserved (SWB-R37, SWB-R41).
+L0 is a functional prerequisite for those combined paths. Only telemetry
+scrubbing and provenance proof follow v1; they do not block broker MVP,
+and message bodies remain disabled until the live ACL and redaction gates
+pass (SWB-R33, SWB-R34, SWB-R48).
 
 ## Layout
 
