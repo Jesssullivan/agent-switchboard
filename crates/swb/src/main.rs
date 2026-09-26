@@ -4,9 +4,28 @@ use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::process::ExitCode;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 const LIMIT: Duration = Duration::from_millis(1500);
+const HOOK_LIMIT: Duration = Duration::from_millis(1800);
+
+fn bounded<T, F>(limit: Duration, work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    let (sender, receiver) = mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name("swb-bounded-client".into())
+        .spawn(move || {
+            let _ = sender.send(work());
+        })
+        .map_err(|e| e.to_string())?;
+    receiver
+        .recv_timeout(limit)
+        .map_err(|_| "broker deadline exceeded".to_string())?
+}
 
 fn env(name: &str) -> Result<String, String> {
     std::env::var(name)
@@ -35,8 +54,25 @@ fn endpoint() -> Result<(String, u16), String> {
 
 fn call(method: &str, path: &str, data: Option<&Value>) -> Result<Value, String> {
     let (host, port) = endpoint()?;
+    let method = method.to_owned();
+    let path = path.to_owned();
+    let data = data.cloned();
+    // DNS and all socket operations run in a process-local worker. The
+    // caller's deadline does not depend on resolver cancellation or EOF.
+    bounded(LIMIT, move || {
+        blocking_call(&host, port, &method, &path, data.as_ref())
+    })
+}
+
+fn blocking_call(
+    host: &str,
+    port: u16,
+    method: &str,
+    path: &str,
+    data: Option<&Value>,
+) -> Result<Value, String> {
     let deadline = Instant::now() + LIMIT;
-    let address = (host.as_str(), port)
+    let address = (host, port)
         .to_socket_addrs()
         .map_err(|e| e.to_string())?
         .next()
@@ -207,7 +243,12 @@ fn main() -> ExitCode {
         }
         Some("hook") => {
             if let (Some(h), Some(e), None) = (args.next(), args.next(), args.next()) {
-                hook(&h, &e);
+                // Includes stdin parsing and both possible broker calls.
+                // A stalled resolver/read cannot make this hook block Claude.
+                let _ = bounded(HOOK_LIMIT, move || {
+                    hook(&h, &e);
+                    Ok(())
+                });
             }
             ExitCode::SUCCESS
         }
@@ -337,5 +378,37 @@ mod tests {
             inbox("pi:honey:1:session?limit=1000").unwrap_err(),
             "invalid SWB_AGENT_ID"
         );
+    }
+
+    #[test]
+    fn stalled_resolution_worker_cannot_hold_caller() {
+        let start = Instant::now();
+        let error = bounded(Duration::from_millis(75), || {
+            // A deliberately slow resolver substitute has the same blocking
+            // behavior as to_socket_addrs; the worker is never signaled.
+            std::thread::sleep(Duration::from_millis(700));
+            Ok::<_, String>(())
+        })
+        .unwrap_err();
+        assert_eq!(error, "broker deadline exceeded");
+        assert!(start.elapsed() < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn stalled_http_read_cannot_hold_caller() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (_stream, _) = listener.accept().unwrap();
+            std::thread::sleep(Duration::from_millis(700));
+        });
+        let start = Instant::now();
+        let error = bounded(Duration::from_millis(75), move || {
+            blocking_call("127.0.0.1", port, "GET", "/v1/peers", None)
+        })
+        .unwrap_err();
+        assert_eq!(error, "broker deadline exceeded");
+        assert!(start.elapsed() < Duration::from_millis(500));
+        server.join().unwrap();
     }
 }

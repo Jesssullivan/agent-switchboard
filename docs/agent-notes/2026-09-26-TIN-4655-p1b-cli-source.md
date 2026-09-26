@@ -42,3 +42,20 @@ HTTP registration, request-path rejection and ended transition tests.
 Honey just build passed //:build and //deploy:swb_layer.
 Neo performed no compile. No live broker, host delivery or process control
 was attempted.
+
+## 2026-09-26 deadline correction
+
+R-N13 and SWB-R10: the first CLI source used a synchronous resolver before
+starting its socket deadline, so DNS could exceed 1.5 seconds. A follow-up
+places the entire DNS/connect/write/read operation in a process-local worker
+with a timed result channel. The hook has an independent 1.8-second aggregate
+deadline that includes stdin reading and both possible broker calls. A late
+worker result is ignored; no process is signaled. This removes the need for
+an external shell timeout in lab's staged wrapper once that wrapper is updated.
+
+Honey just remote-check passed all eight Bazel targets after the correction.
+The new tests simulate stalled resolution and withhold an HTTP response from
+an owned loopback fixture; in both cases the caller returned at the short
+test deadline. The store accepts any nonempty proc_start token, so an OS
+process-start token from a managed launcher needs no format change. The
+identity source and live URL gates above still apply.
