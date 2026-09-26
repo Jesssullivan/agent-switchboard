@@ -35,6 +35,9 @@ fn field<'a>(v: &'a Value, key: &str) -> Result<&'a str, String> {
         .ok_or_else(|| format!("missing {key}"))
 }
 fn valid_agent_id(id: &str) -> bool {
+    if id.len() > 512 {
+        return false;
+    }
     let parts: Vec<_> = id.split(':').collect();
     parts.len() == 4
         && matches!(
@@ -51,6 +54,38 @@ fn valid_agent_id(id: &str) -> bool {
 }
 fn valid_ulid(s: &str) -> bool {
     s.len() == 26 && s.parse::<Ulid>().is_ok_and(|id| id.to_string() == s)
+}
+fn valid_rfc3339_shape(s: &str) -> bool {
+    let b = s.as_bytes();
+    if !(20..=40).contains(&b.len())
+        || b.get(4) != Some(&b'-')
+        || b.get(7) != Some(&b'-')
+        || b.get(10) != Some(&b'T')
+        || b.get(13) != Some(&b':')
+        || b.get(16) != Some(&b':')
+        || [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18]
+            .iter()
+            .any(|&i| !b[i].is_ascii_digit())
+    {
+        return false;
+    }
+    let mut suffix = &b[19..];
+    if suffix.first() == Some(&b'.') {
+        suffix = &suffix[1..];
+        let digits = suffix.iter().take_while(|c| c.is_ascii_digit()).count();
+        if digits == 0 {
+            return false;
+        }
+        suffix = &suffix[digits..];
+    }
+    suffix == b"Z"
+        || (suffix.len() == 6
+            && matches!(suffix[0], b'+' | b'-')
+            && suffix[1].is_ascii_digit()
+            && suffix[2].is_ascii_digit()
+            && suffix[3] == b':'
+            && suffix[4].is_ascii_digit()
+            && suffix[5].is_ascii_digit())
 }
 fn clean(s: &str) -> String {
     s.chars().filter(|c| !c.is_control()).collect()
@@ -87,6 +122,10 @@ impl Store {
               UNIQUE(thread_id,seq));
             CREATE INDEX IF NOT EXISTS messages_inbox ON messages(recipient,state,created_at);
             CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS thread_counters (thread_id TEXT PRIMARY KEY, high_water INTEGER NOT NULL);
+            INSERT INTO thread_counters(thread_id, high_water)
+              SELECT thread_id, MAX(seq) FROM messages GROUP BY thread_id
+              ON CONFLICT(thread_id) DO UPDATE SET high_water=MAX(high_water, excluded.high_water);
             CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value BLOB NOT NULL);").map_err(sql_err)?;
         let mut key = [0u8; 32];
         std::fs::File::open("/dev/urandom")
@@ -168,39 +207,6 @@ impl Store {
     }
     pub fn send(&self, input: &Value) -> Result<SendOutcome, String> {
         self.prune()?;
-        if let Some(id) = input
-            .get("msg_id")
-            .and_then(Value::as_str)
-            .filter(|id| valid_ulid(id))
-        {
-            let db = self.0.lock().map_err(|_| "store lock poisoned")?;
-            let stored: Option<(String, String, String)> = db
-                .query_row(
-                    "SELECT sender,body,envelope FROM messages WHERE msg_id=?1",
-                    [id],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-                )
-                .optional()
-                .map_err(sql_err)?;
-            if let Some((old_sender, old_body, envelope)) = stored {
-                if input.get("from").and_then(Value::as_str) != Some(old_sender.as_str())
-                    || input
-                        .get("body")
-                        .and_then(Value::as_str)
-                        .map(clean)
-                        .as_deref()
-                        != Some(old_body.as_str())
-                {
-                    return Err("msg_id conflict".into());
-                }
-                return serde_json::from_str(&envelope)
-                    .map(|envelope| SendOutcome {
-                        envelope,
-                        created: false,
-                    })
-                    .map_err(|e| e.to_string());
-            }
-        }
         let sender = field(input, "from")?;
         let recipient = field(input, "to")?;
         if !valid_agent_id(sender) || !valid_agent_id(recipient) {
@@ -216,10 +222,11 @@ impl Store {
             return Err("body exceeds 16 KiB".into());
         }
         let ticket = field(input, "ticket")?;
-        if ticket != "none"
-            && (!ticket.starts_with("TIN-")
-                || !ticket[4..].chars().all(|c| c.is_ascii_digit())
-                || ticket.len() == 4)
+        if ticket.len() > 64
+            || ticket != "none"
+                && (!ticket.starts_with("TIN-")
+                    || !ticket[4..].chars().all(|c| c.is_ascii_digit())
+                    || ticket.len() == 4)
         {
             return Err("invalid ticket".into());
         }
@@ -262,6 +269,35 @@ impl Store {
                 }
             }
         }
+        let input_map = input.as_object().ok_or("expected object")?;
+        const ALLOWED: &[&str] = &[
+            "from",
+            "to",
+            "ticket",
+            "body",
+            "msg_id",
+            "thread_id",
+            "in_reply_to",
+            "operator_directed",
+            "ruling",
+            "reply_expires",
+            "reply_format",
+            "artifacts",
+            "ttl_hours",
+            "authority",
+            "v",
+        ];
+        if input_map.keys().any(|key| !ALLOWED.contains(&key.as_str())) {
+            return Err("unknown envelope field".into());
+        }
+        for key in ["msg_id", "thread_id", "reply_expires"] {
+            if input.get(key).is_some_and(|value| !value.is_string()) {
+                return Err(format!("invalid {key}"));
+            }
+        }
+        if input.get("ttl_hours").is_some_and(|v| !v.is_u64()) {
+            return Err("invalid ttl_hours".into());
+        }
         if input
             .get("in_reply_to")
             .is_some_and(|v| !v.as_str().is_some_and(valid_ulid))
@@ -296,6 +332,18 @@ impl Store {
                 .map(|n| n.min(u32::MAX as u64) as u32),
         );
         let mut db = self.0.lock().map_err(|_| "store lock poisoned")?;
+        if let Some(value) = input.get("reply_expires") {
+            let stamp = value
+                .as_str()
+                .filter(|s| valid_rfc3339_shape(s))
+                .ok_or("invalid reply_expires")?;
+            let parsed: Option<i64> = db
+                .query_row("SELECT unixepoch(?1)", [stamp], |row| row.get(0))
+                .map_err(sql_err)?;
+            if parsed.is_none() {
+                return Err("invalid reply_expires".into());
+            }
+        }
         let tx = db
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(sql_err)?;
@@ -312,22 +360,46 @@ impl Store {
             if old_sender != sender || old_body != body {
                 return Err("msg_id conflict".into());
             }
-            return serde_json::from_str(&envelope)
-                .map(|envelope| SendOutcome {
-                    envelope,
-                    created: false,
-                })
-                .map_err(|e| e.to_string());
+            let envelope = serde_json::from_str(&envelope).map_err(|e| e.to_string())?;
+            tx.execute(
+                "UPDATE sessions SET last_seen=unixepoch(), ended=0 WHERE agent_id=?1",
+                [sender],
+            )
+            .map_err(sql_err)?;
+            tx.commit().map_err(sql_err)?;
+            return Ok(SendOutcome {
+                envelope,
+                created: false,
+            });
         }
+        tx.execute(
+            "INSERT INTO thread_counters(thread_id,high_water) VALUES(?1,1)
+             ON CONFLICT(thread_id) DO UPDATE SET high_water=high_water+1",
+            [&thread_id],
+        )
+        .map_err(sql_err)?;
         let seq: i64 = tx
             .query_row(
-                "SELECT COALESCE(MAX(seq),0)+1 FROM messages WHERE thread_id=?1",
+                "SELECT high_water FROM thread_counters WHERE thread_id=?1",
                 [&thread_id],
                 |r| r.get(0),
             )
             .map_err(sql_err)?;
-        let mut envelope = input.clone();
+        let mut envelope = json!({
+            "from":sender,"to":recipient,"ticket":ticket,"body":body
+        });
         let map = envelope.as_object_mut().ok_or("expected object")?;
+        for key in [
+            "in_reply_to",
+            "ruling",
+            "reply_expires",
+            "reply_format",
+            "artifacts",
+        ] {
+            if let Some(value) = input.get(key) {
+                map.insert(key.into(), value.clone());
+            }
+        }
         map.insert("v".into(), json!(3));
         map.insert("msg_id".into(), json!(msg_id));
         map.insert("thread_id".into(), json!(thread_id));
@@ -356,6 +428,11 @@ impl Store {
                     VALUES(?1,?2,?3,?4,?5,?6,?7,unixepoch(),unixepoch()+?8)",
             params![msg_id,thread_id,seq,sender,recipient,body,envelope.to_string(),i64::from(ttl)*3600]).map_err(sql_err)?;
         tx.execute("INSERT INTO counters(name,value) VALUES('messages_total',1) ON CONFLICT(name) DO UPDATE SET value=value+1",[]).map_err(sql_err)?;
+        tx.execute(
+            "UPDATE sessions SET last_seen=unixepoch(), ended=0 WHERE agent_id=?1",
+            [sender],
+        )
+        .map_err(sql_err)?;
         tx.commit().map_err(sql_err)?;
         Ok(SendOutcome {
             envelope,
@@ -382,6 +459,11 @@ impl Store {
         for (id, _) in &messages {
             tx.execute("UPDATE messages SET state='fetched',delivery_count=delivery_count+1 WHERE msg_id=?1",[id]).map_err(sql_err)?;
         }
+        tx.execute(
+            "UPDATE sessions SET last_seen=unixepoch(), ended=0 WHERE agent_id=?1",
+            [me],
+        )
+        .map_err(sql_err)?;
         let values = messages
             .into_iter()
             .map(|(id, body)| {
@@ -419,6 +501,11 @@ impl Store {
                 return Err("message unavailable".into());
             }
         }
+        db.execute(
+            "UPDATE sessions SET last_seen=unixepoch(), ended=0 WHERE agent_id=?1",
+            [me],
+        )
+        .map_err(sql_err)?;
         Ok(json!({"msg_id":msg_id,"state":"acked"}))
     }
     pub fn metrics(&self) -> Result<String, String> {
@@ -480,6 +567,90 @@ mod tests {
         assert_eq!(s.peers().unwrap()["peers"][0]["state"], "live");
         assert_eq!(s.end(me, "new").unwrap()["state"], "ended");
         assert_eq!(s.peers().unwrap()["peers"][0]["state"], "ended");
+    }
+    #[test]
+    fn thread_sequence_survives_pruned_latest_ack() {
+        let s = Store::memory().unwrap();
+        let from = "claude:honey:1:a";
+        let to = "pi:sting:2:b";
+        let thread = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+        let first = s
+            .send(&json!({"from":from,"to":to,"ticket":"none","body":"one","thread_id":thread}))
+            .unwrap();
+        let second = s
+            .send(&json!({"from":from,"to":to,"ticket":"none","body":"two","thread_id":thread}))
+            .unwrap();
+        assert_eq!(first.envelope["seq"], 1);
+        assert_eq!(second.envelope["seq"], 2);
+        let id = second.envelope["msg_id"].as_str().unwrap();
+        s.ack(to, id).unwrap();
+        s.0.lock()
+            .unwrap()
+            .execute(
+                "UPDATE messages SET acked_at=unixepoch()-604801 WHERE msg_id=?1",
+                [id],
+            )
+            .unwrap();
+        s.prune().unwrap();
+        let third = s
+            .send(&json!({"from":from,"to":to,"ticket":"none","body":"three","thread_id":thread}))
+            .unwrap();
+        assert_eq!(third.envelope["seq"], 3);
+    }
+
+    #[test]
+    fn sender_and_reader_refresh_only_their_own_lease() {
+        let s = Store::memory().unwrap();
+        let sender = s.register(&json!({"harness":"claude","host":"honey","pid":1,"session_id":"a","proc_start":"1"})).unwrap();
+        let receiver = s
+            .register(
+                &json!({"harness":"pi","host":"sting","pid":2,"session_id":"b","proc_start":"2"}),
+            )
+            .unwrap();
+        let from = sender["agent_id"].as_str().unwrap();
+        let to = receiver["agent_id"].as_str().unwrap();
+        s.0.lock()
+            .unwrap()
+            .execute("UPDATE sessions SET last_seen=unixepoch()-30000", [])
+            .unwrap();
+        let sent = s
+            .send(&json!({"from":from,"to":to,"ticket":"none","body":"hello"}))
+            .unwrap();
+        let peers = s.peers().unwrap();
+        assert_eq!(peers["peers"][0]["state"], "live");
+        assert_eq!(peers["peers"][1]["state"], "gone");
+        s.inbox(to, 1).unwrap();
+        let peers = s.peers().unwrap();
+        assert_eq!(peers["peers"][1]["state"], "live");
+        s.0.lock()
+            .unwrap()
+            .execute("UPDATE sessions SET last_seen=unixepoch()-30000", [])
+            .unwrap();
+        s.ack(to, sent.envelope["msg_id"].as_str().unwrap())
+            .unwrap();
+        let peers = s.peers().unwrap();
+        assert_eq!(peers["peers"][0]["state"], "gone");
+        assert_eq!(peers["peers"][1]["state"], "live");
+    }
+
+    #[test]
+    fn rejects_unknown_and_ill_typed_envelope_fields() {
+        let s = Store::memory().unwrap();
+        let base =
+            json!({"from":"claude:honey:1:a","to":"pi:sting:2:b","ticket":"none","body":"hello"});
+        let mut state = base.clone();
+        state["state"] = json!("operator");
+        assert_eq!(s.send(&state).unwrap_err(), "unknown envelope field");
+        let mut expires = base.clone();
+        expires["reply_expires"] = json!({"unexpected":"object"});
+        assert_eq!(s.send(&expires).unwrap_err(), "invalid reply_expires");
+        expires["reply_expires"] = json!("now");
+        assert_eq!(s.send(&expires).unwrap_err(), "invalid reply_expires");
+        let mut extra = base;
+        extra["authority"] = json!("operator");
+        let sent = s.send(&extra).unwrap();
+        assert_eq!(sent.envelope["authority"], "peer");
+        assert!(sent.envelope.get("state").is_none());
     }
     #[test]
     fn round_trip_and_opaque_conflict() {

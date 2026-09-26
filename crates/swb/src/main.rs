@@ -9,6 +9,10 @@ use std::time::{Duration, Instant};
 
 const LIMIT: Duration = Duration::from_millis(1500);
 const HOOK_LIMIT: Duration = Duration::from_millis(1800);
+const MAX_RESPONSE_BYTES: usize = 512 * 1024;
+// A valid envelope can contain a 16 KiB body and 40 KiB of artifact paths;
+// JSON escaping can enlarge the latter up to sixfold. Use one-message pages.
+const CLI_INBOX_PAGE: u32 = 1;
 
 fn bounded<T, F>(limit: Duration, work: F) -> Result<T, String>
 where
@@ -99,7 +103,7 @@ fn blocking_call(
             Ok(0) => break,
             Ok(n) => {
                 bytes.extend_from_slice(&chunk[..n]);
-                if bytes.len() > 131072 {
+                if bytes.len() > MAX_RESPONSE_BYTES {
                     return Err("broker response too large".into());
                 }
             }
@@ -164,7 +168,7 @@ fn inbox(me: &str) -> Result<Value, String> {
     }
     call(
         "GET",
-        &format!("/v1/inbox?me={me}&limit=20&wait_seconds=0"),
+        &format!("/v1/inbox?me={me}&limit={CLI_INBOX_PAGE}&wait_seconds=0"),
         None,
     )
 }
@@ -224,9 +228,17 @@ fn hook(harness_arg: &str, event: &str) {
     if messages.is_empty() {
         return;
     }
+    let first = &messages[0];
+    let sender = first
+        .get("from")
+        .and_then(Value::as_str)
+        .unwrap_or("a peer");
+    let ticket = first
+        .get("ticket")
+        .and_then(Value::as_str)
+        .unwrap_or("none");
     let context = format!(
-        "{} unread peer message(s) — use agents inbox to read and acknowledge them",
-        messages.len()
+        "At least one unread peer message from {sender} ({ticket}) — use agents inbox to read and acknowledge it"
     );
     println!(
         "{}",
@@ -378,6 +390,66 @@ mod tests {
             inbox("pi:honey:1:session?limit=1000").unwrap_err(),
             "invalid SWB_AGENT_ID"
         );
+    }
+
+    #[test]
+    fn one_maximum_escaped_envelope_fits_cli_page() {
+        let store = swb_store::Store::memory().unwrap();
+        let to = "pi:sting:2:b";
+        let artifacts: Vec<String> = (0..20)
+            .map(|i| format!("{}{:02}", "\u{0000}".repeat(2046), i))
+            .collect();
+        let sent = store
+            .send(&json!({
+                "from":"claude:honey:1:a","to":to,"ticket":"TIN-4655",
+                "body":"\"".repeat(16384),"artifacts":artifacts
+            }))
+            .unwrap();
+        assert_eq!(sent.envelope["body"].as_str().unwrap().len(), 16384);
+        let response = store.inbox(to, CLI_INBOX_PAGE).unwrap().to_string();
+        assert!(
+            response.len() > 128 * 1024,
+            "regression must exceed old cap"
+        );
+        assert!(
+            response.len() < MAX_RESPONSE_BYTES,
+            "one valid escaped page must fit"
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut chunk = [0u8; 512];
+                let n = stream.read(&mut chunk).unwrap();
+                assert!(n > 0);
+                request.extend_from_slice(&chunk[..n]);
+                if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            assert!(String::from_utf8_lossy(&request).contains("limit=1&wait_seconds=0"));
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
+                response.len()
+            )
+            .unwrap();
+        });
+        let received = blocking_call(
+            "127.0.0.1",
+            port,
+            "GET",
+            &format!("/v1/inbox?me={to}&limit={CLI_INBOX_PAGE}&wait_seconds=0"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            received["messages"][0]["body"].as_str().unwrap().len(),
+            16384
+        );
+        server.join().unwrap();
     }
 
     #[test]

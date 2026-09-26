@@ -85,16 +85,24 @@ fn operation(store: &Store, name: &str, args: &Value) -> Result<Value, String> {
         };
         println!(
             "{}",
-            json!({
-                "ts":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0,|d|d.as_secs()),
-                "op":name,"me":args.get("me").or_else(||args.get("from")),"to":result.get("to"),
-                "ticket":result.get("ticket"),"ruling":result.get("ruling"),
-                "msg_id":result.get("msg_id"),"size":body.len(),"body_hmac":body_hmac,
-                "agent_id":result.get("agent_id"),"state":result.get("state")
-            })
+            audit_record(name, args, &result, body_hmac.as_deref())
         );
     }
     Ok(result)
+}
+
+fn audit_record(name: &str, args: &Value, result: &Value, body_hmac: Option<&str>) -> Value {
+    let body_size = result
+        .get("body")
+        .and_then(Value::as_str)
+        .map_or(0, str::len);
+    json!({
+        "ts":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0,|d|d.as_secs()),
+        "op":name,"me":args.get("me").or_else(||args.get("from")),"to":result.get("to"),
+        "ticket":result.get("ticket"),"ruling":result.get("ruling"),
+        "msg_id":result.get("msg_id"),"size":body_size,"body_hmac":body_hmac,
+        "agent_id":result.get("agent_id"),"state":result.get("state")
+    })
 }
 
 fn tools() -> Vec<Tool> {
@@ -284,6 +292,20 @@ mod tests {
     #[test]
     fn broker_stamps_peer() {
         assert_eq!(stamped_authority(), Authority::Peer);
+    }
+    #[test]
+    fn audit_excludes_body_and_unapproved_state() {
+        let store = Store::memory().unwrap();
+        let args = json!({"from":"claude:honey:1:a","to":"pi:sting:2:b","ticket":"none","body":"secret sentinel"});
+        let envelope = store.send(&args).unwrap().envelope;
+        let record = audit_record("send", &args, &envelope, Some("keyed-hmac"));
+        let line = record.to_string();
+        assert!(!line.contains("secret sentinel"));
+        assert_eq!(record["state"], Value::Null);
+        assert_eq!(record["body_hmac"], "keyed-hmac");
+        let mut invalid = args;
+        invalid["state"] = json!("operator");
+        assert_eq!(store.send(&invalid).unwrap_err(), "unknown envelope field");
     }
     #[test]
     fn lists_five_typed_tools() {

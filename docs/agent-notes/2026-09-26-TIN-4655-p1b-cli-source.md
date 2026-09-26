@@ -59,3 +59,29 @@ an owned loopback fixture; in both cases the caller returned at the short
 test deadline. The store accepts any nonempty proc_start token, so an OS
 process-start token from a managed launcher needs no format change. The
 identity source and live URL gates above still apply.
+
+## 2026-09-26 review corrections
+
+R-N13 and SWB-R09/SWB-R10/SWB-R14: a CLI request for 20 maximum-size
+messages exceeded the client's fixed response cap and could suppress the
+hook's unread notice. The CLI now requests one message per page, describes
+the hook notice as at least one unread message, and bounds a page at 512
+KiB. A regression constructs an actual stored message with a 16 KiB body
+and twenty 2 KiB artifact references made of JSON-escaped control bytes.
+Its serialized inbox response exceeds the old 128 KiB cap and fits the new
+one. The broker's inbox semantics and its 100-message maximum stay intact.
+
+R-N13 and SWB-R09/SWB-R14: each thread now has a transactional high-water
+counter in SQLite, so pruning an old acked latest message cannot reuse its
+sequence. On an existing store, initialization seeds counters from retained
+messages. Successful send, inbox and ack calls refresh only the caller's
+registered lease; a send never refreshes its recipient. An exact idempotent
+retry also refreshes its sender.
+
+R-N13 and SWB-R14/SWB-R33: send constructs an allowlisted envelope instead
+of copying arbitrary request fields. Unknown keys such as state are rejected,
+optional fields are type-checked, and the broker still stamps authority peer.
+The audit regression checks that neither a message body nor an unapproved
+state reaches its stdout record. Honey just remote-check passed all eight
+Bazel targets after these changes, and just build passed the binary and
+image layer. No host deployment or process control occurred.
