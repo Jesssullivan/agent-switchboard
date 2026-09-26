@@ -12,7 +12,8 @@ const USAGE: &str = "usage: swb <serve|agentd|hook <harness>|whoami|inbox|versio
 fn exit_status(subcommand: Option<&str>) -> u8 {
     match subcommand {
         Some("hook" | "version") => 0,
-        Some("serve" | "agentd" | "whoami" | "inbox") => 3,
+        Some("agentd" | "whoami" | "inbox") => 3,
+        Some("serve") => 0,
         _ => 2,
     }
 }
@@ -30,7 +31,22 @@ fn main() -> ExitCode {
             swb_broker::HOOK_TIMEOUT_MS,
         ),
         Some("hook") => {}
-        Some(other @ ("serve" | "agentd" | "whoami" | "inbox")) => {
+        Some("serve") => {
+            let path =
+                std::env::var("SWB_DB_PATH").unwrap_or_else(|_| "/var/lib/swb/swb.sqlite3".into());
+            let listen = std::env::var("SWB_LISTEN").unwrap_or_else(|_| "0.0.0.0:8080".into());
+            let metrics =
+                std::env::var("SWB_METRICS_LISTEN").unwrap_or_else(|_| "0.0.0.0:9090".into());
+            let store = swb_store::Store::open(&path).unwrap_or_else(|e| {
+                eprintln!("store: {e}");
+                std::process::exit(1)
+            });
+            if let Err(e) = swb_broker::serve(std::sync::Arc::new(store), &listen, &metrics) {
+                eprintln!("serve: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+        Some(other @ ("agentd" | "whoami" | "inbox")) => {
             eprintln!("swb {other}: not implemented until P1b/P2");
         }
         _ => eprintln!("{USAGE}"),
@@ -45,7 +61,7 @@ mod tests {
     #[test]
     fn hook_never_blocks() {
         assert_eq!(exit_status(Some("hook")), 0);
-        assert_eq!(exit_status(Some("serve")), 3);
+        assert_eq!(exit_status(Some("serve")), 0);
         assert_eq!(exit_status(None), 2);
     }
 }
