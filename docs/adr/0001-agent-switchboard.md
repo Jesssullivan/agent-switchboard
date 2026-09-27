@@ -244,7 +244,8 @@ registered once on the tailnet so that new harness instances spawn nothing.
     `tinyland-nix`);
   - it runs for `pull_request`, `merge_group` and `push: main`;
   - `ci-ok` is the one required aggregate check;
-  - the image is published by digest from main;
+  - the image is published by digest from reviewed main by default; SWB-R50
+    permits one exact local candidate exception while GF is in development;
   - the repo is private, as the template requires.
 - **Canonical repo:** `xoxd-ai/agent-switchboard`. Its ruleset on `main`
   requires:
@@ -278,6 +279,14 @@ registered once on the tailnet so that new harness instances spawn nothing.
   does not push or alter GitHub main, PRs or the ruleset. The original P1a
   merge-queue exit and GitHub main landing remain separate, unproved gates;
   local checks allow P1b functional work to continue while those gates wait.
+- **SWB-R50 immutable local candidate (2026-09-27):** The operator approved
+  publishing only the signed #2–#5 local integration candidate identified in
+  the TIN-4655 ruling comment, by its immutable OCI manifest digest, for the
+  blahaj-owned rollout. Its Honey build, checks and restricted rootless smoke
+  are recorded in PR #6. Publication must preserve that digest and record
+  registry readback. This exception neither changes GitHub main nor proves
+  production deployment, L0 or cross-harness acceptance. Reviewed-main
+  publication remains the default for later images.
 - **Census:** one clone per repo. The fork is recorded in
   `tinyland.repo.json` `contracts.agent_contract` as free text, because the
   manifest schema has no fork field.
@@ -396,6 +405,7 @@ Operator questions and asides are not rulings (R-N13).
 | SWB-R20 | 2026-09-25 | same | Unchanged: Codex push waits for a recorded live-thread proof. |
 | SWB-R21 | 2026-09-25 | Operator interview, relayed to the P1a lane by the orchestrating session; durable carrier: the P1a receipt comment on TIN-4655 | "Yes, start P1a now." |
 | SWB-R49 | 2026-09-27 | TIN-4655 comment `02905283`; operator direction and follow-up choice | "we cannot use GF. we must use local merge recipes." GF is in development. Add a switchboard local integration recipe; GitHub main landing remains a separate gate. |
+| SWB-R50 | 2026-09-27 | TIN-4655 comment `b6375b35`; operator approval | Publish the exact signed #2–#5 local integration candidate by immutable digest for the blahaj-owned rollout, with registry readback. Reviewed-main publication remains the default; GitHub main landing and live acceptance stay separate. |
 
 Estate rulings this design depends on:
 

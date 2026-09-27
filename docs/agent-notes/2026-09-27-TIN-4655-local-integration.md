@@ -70,3 +70,16 @@ Rootless Podman ran that exact image's `swb version` with `--network none`,
 image assembly and the bounded startup smoke for the integrated source.
 No image was published, no broker was deployed, and the live P1b exits and
 GitHub main landing remain open.
+
+## 20:49 UTC publication ruling carrier
+
+SWB-R50 / R-N13: TIN-4655 comment `b6375b35` records the operator's narrow
+approval to publish the exact signed local #2–#5 integration candidate
+(`6330f2e3`) by immutable OCI manifest digest for the blahaj-owned rollout
+while GF is in development. ADR-0001 now carries that exception while keeping
+reviewed-main publication as the default. Publication must preserve the
+manifest digest and record registry readback. The exact candidate and digest
+are in the ruling comment and Honey's image log; this source note does not
+repeat the full digest. GitHub main landing, production deployment, L0 and
+cross-harness acceptance remain separate gates. This documentation change
+does not publish or deploy the image.
