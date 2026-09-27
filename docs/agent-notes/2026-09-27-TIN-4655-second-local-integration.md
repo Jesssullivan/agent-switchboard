@@ -3,7 +3,7 @@ title: "Second signed switchboard local integration candidate"
 date: 2026-09-27
 status: active
 summary: >-
-  SWB-R49 second named #2–#5 candidate is signed and Honey-validated; OCI image built and locally smoked without publication.
+  SWB-R49 second named #2–#5 candidate is signed and Honey-validated; SWB-R53 later published its exact OCI image by digest.
 refs:
   - TIN-4655
 ---
@@ -46,3 +46,24 @@ SWB-R49 / R-N13: This receipt is committed on a separate local docs branch.
 The candidate, original candidate, GitHub main and PR merge state remain
 unchanged. No image was published and no GF runner was used. Full immutable
 source and image identifiers are in the TIN-4655 handoff receipt.
+
+## 22:16 UTC immutable GHCR publication
+
+SWB-R53 / R-N13: The operator approved publication of this exact signed
+second candidate (`b515872`) while keeping the candidate, GitHub main and
+the earlier published image separate. A checksum dry-run rsync found no
+source differences between the clean signed worktree and Honey's build tree.
+Honey's OCI index and child manifest matched the approved digest; after
+copying the layout to Neo, all 24 OCI blobs passed SHA-256 verification.
+
+Neo's Skopeo 1.24.1 copied the Honey-derived layout to
+`ghcr.io/xoxd-ai/agent-switchboard` at its immutable digest with
+`--preserve-digests` and no mutable tag. The digestfile matched the approved
+manifest. An authenticated raw GHCR GET returned a 4,579-byte manifest
+identical to the local child manifest, with the same SHA-256. The full digest
+is in the dated TIN-4655 receipt and the Neo evidence files at
+`~/.claude/agent-notes-rescue/2026-09-27/swb-b515872-push.digest` and
+`swb-b515872-registry-manifest.json`; it is omitted here. The temporary
+0600 Skopeo authfile was unlinked after readback. No image was rebuilt or
+deployed, no mutable tag or GF runner was used, and no process was signaled.
+Deployment and live acceptance remain open.
