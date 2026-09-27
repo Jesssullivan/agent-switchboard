@@ -51,3 +51,22 @@ dry-run rsync with directory times omitted emitted no differences between the
 clean local worktree and Honey's tested source. The local merge is source
 integration evidence only; the image from this exact tree is not published,
 and the four live P1b exits remain unproved.
+
+## 20:40 UTC image and smoke result
+
+SWB-R49 / R-N13: Honey ran `just image` from the byte-matched integrated
+source at `~/scratch/agent-switchboard-local-6330f2e`. Bazel completed
+successfully (20 actions). The log is
+`~/scratch/agent-switchboard-local-6330f2e/just-image.log`, and the resulting
+Linux/amd64 OCI layout is at
+`~/scratch/agent-switchboard-local-6330f2e/bazel-bin/deploy/image`. The
+recipe printed an immutable manifest digest, which was matched to the layout
+index and then to rootless Podman's imported image. The full digest is held
+in the Honey log and OCI layout rather than this source note.
+
+Rootless Podman ran that exact image's `swb version` with `--network none`,
+`--read-only`, UID/GID 65532, all capabilities dropped, and
+`no-new-privileges`. It exited 0 with `swb 0.1.0 envelope v3`. This proves
+image assembly and the bounded startup smoke for the integrated source.
+No image was published, no broker was deployed, and the live P1b exits and
+GitHub main landing remain open.
