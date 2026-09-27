@@ -36,6 +36,16 @@ remote-check host="sting" dir="~/scratch/agent-switchboard-check":
     rsync -a --delete --exclude '/bazel-*' --exclude '/target/' --exclude '/.git/' ./ {{host}}:{{dir}}/
     ssh {{host}} 'cd {{dir}} && just check'
 
+# SWB-R49 local integration while GF is in development (TIN-4655).
+# Pin each PR to its reviewed full SHA. This creates a separate,
+# signed local merge tree; it never pushes or changes GitHub PR/main state.
+# Example: just local-integrate '2@<full-sha> 3@<full-sha> 4@<full-sha> 5@<full-sha>'
+local-integrate refs:
+    bash ./scripts/local-integrate.sh {{ quote(refs) }}
+
+local-integrate-dry-run refs:
+    bash ./scripts/local-integrate.sh --dry-run {{ quote(refs) }}
+
 # PRs go from the fork to upstream main through the merge queue (ADR-0001).
 # Set remotes: origin = your private fork (the only push target), upstream = xoxd-ai with push DISABLED.
 fork-setup fork_owner="Jesssullivan":

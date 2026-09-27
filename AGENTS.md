@@ -70,6 +70,13 @@ When sources disagree, prefer them in this order:
   on a fork PR both jobs are skipped and `ci-ok` reports as passing. The full
   lane runs on `merge_group`. Run `just check` (or `just remote-check`)
   before queueing.
+- **SWB-R49 local integration while GF is in development:** use
+  `just local-integrate` with exact reviewed `PR@FULL_SHA` inputs to assemble
+  a separate signed merge tree, then run `just remote-check honey` (Sting
+  fallback). The recipe never pushes or changes GitHub main or PR state.
+  Its result supports functional development but does not prove the original
+  P1a merge-queue exit or replace the separate main-landing gate. Do not
+  describe a local integration result as a merged PR.
 - **Commits** are GPG-signed, with no AI attribution lines.
 
 ## Product invariants

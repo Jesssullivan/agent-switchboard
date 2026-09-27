@@ -271,6 +271,13 @@ registered once on the tailnet so that new harness instances spawn nothing.
     land.
   - `just check` on sting or honey is the pre-queue signal (`just
     remote-check` from neo).
+- **SWB-R49 local integration (2026-09-27):** GF is still in development, so
+  the current source-integration lane uses `just local-integrate` with pinned,
+  signature-verified PR heads, signed local merge commits and Honey's Bazel
+  `just check` (Sting fallback). The recipe creates a separate worktree and
+  does not push or alter GitHub main, PRs or the ruleset. The original P1a
+  merge-queue exit and GitHub main landing remain separate, unproved gates;
+  local checks allow P1b functional work to continue while those gates wait.
 - **Census:** one clone per repo. The fork is recorded in
   `tinyland.repo.json` `contracts.agent_contract` as free text, because the
   manifest schema has no fork field.
@@ -314,6 +321,8 @@ Each phase's exit is checked before the next starts. Every phase writes a
   - Scope: repo scaffold, ruleset, merge queue, private-fork org setting,
     fork, and `fork-setup`.
   - Exit: a trivial PR from the fork runs through the merge queue green.
+  - Under SWB-R49, local integration is an interim source-validation path,
+    not evidence that this exit has passed.
 - **P1b: broker MVP.** Repos: this one, blahaj (the
   `tofu/stacks/agent-switchboard` stack and a `tailnet-dns` alias) and lab.
   - The broker ships `register`, `peers`, `send`, `inbox` and `ack`, stamps
@@ -386,6 +395,7 @@ Operator questions and asides are not rulings (R-N13).
 | SWB-R19 | 2026-09-25 | same | "Message bodies in Loki". Retention and access follow Loki's. |
 | SWB-R20 | 2026-09-25 | same | Unchanged: Codex push waits for a recorded live-thread proof. |
 | SWB-R21 | 2026-09-25 | Operator interview, relayed to the P1a lane by the orchestrating session; durable carrier: the P1a receipt comment on TIN-4655 | "Yes, start P1a now." |
+| SWB-R49 | 2026-09-27 | TIN-4655 comment `02905283`; operator direction and follow-up choice | "we cannot use GF. we must use local merge recipes." GF is in development. Add a switchboard local integration recipe; GitHub main landing remains a separate gate. |
 
 Estate rulings this design depends on:
 
