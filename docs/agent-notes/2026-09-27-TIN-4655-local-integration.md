@@ -83,3 +83,16 @@ are in the ruling comment and Honey's image log; this source note does not
 repeat the full digest. GitHub main landing, production deployment, L0 and
 cross-harness acceptance remain separate gates. This documentation change
 does not publish or deploy the image.
+
+## 20:53 UTC immutable candidate publication
+
+SWB-R50 / R-N13: the exact signed integration candidate (`6330f2e3`) is now
+published to `ghcr.io/xoxd-ai/agent-switchboard` by its immutable OCI
+manifest digest. Neo used Skopeo 1.24.1 to copy the verified Honey OCI child
+manifest with `--preserve-digests`; the digestfile matched the Honey manifest,
+and the SHA-256 of the raw registry manifest matched on readback. The
+temporary Neo authentication file was unlinked after publication. The full
+digest remains in the SWB-R50 TIN-4655 comment and Honey's image log, not in
+this source note. The publication establishes registry identity only;
+production deployment, L0, cross-harness acceptance and GitHub main landing
+remain open.
