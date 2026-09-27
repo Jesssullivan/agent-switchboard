@@ -5,24 +5,51 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: local-integrate.sh [--dry-run] 'PR@FULL_SHA [PR@FULL_SHA ...]'
+Usage: local-integrate.sh [--dry-run] [--name NAME] 'PR@FULL_SHA [PR@FULL_SHA ...]'
 
-Creates ../agent-switchboard-local-integration from fresh upstream/main and
+Creates ../agent-switchboard-local-integration from fresh upstream/main, or
+../agent-switchboard-local-integration-NAME when --name is supplied, and
 merges the pinned upstream PR heads in the supplied order. Every created merge
 commit is signed. The destination must not already exist; the script never
 resets or removes a worktree. It never pushes, changes a PR, or updates main.
+NAME is 1–48 lowercase ASCII letters, digits or hyphen-separated segments,
+starting with a letter and ending with a letter or digit.
 Run `just remote-check honey` from the printed destination after integration.
 EOF
 }
 
 dry_run=0
-if [[ ${1:-} == --dry-run ]]; then
-  dry_run=1
-  shift
-fi
-if [[ ${1:-} == --help || ${1:-} == -h ]]; then
-  usage
-  exit 0
+name=
+name_set=0
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --dry-run)
+      dry_run=1
+      shift
+      ;;
+    --name)
+      if [[ $name_set -eq 1 || $# -lt 2 ]]; then
+        echo 'error: --name requires one name and may appear only once' >&2
+        exit 2
+      fi
+      name=$2
+      name_set=1
+      shift 2
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --*)
+      echo "error: unknown option: $1" >&2
+      exit 2
+      ;;
+    *) break ;;
+  esac
+done
+if [[ $name_set -eq 1 && ( ${#name} -gt 48 || $name == *[!abcdefghijklmnopqrstuvwxyz0123456789-]* || ! $name =~ ^[a-z]([a-z0-9]*(-[a-z0-9]+)*)$ ) ]]; then
+  echo 'error: name must be 1–48 lowercase ASCII letters, digits or hyphen-separated segments, starting with a letter' >&2
+  exit 2
 fi
 if [[ $# -ne 1 || -z $1 || $1 == *$'\n'* ]]; then
   usage >&2
@@ -68,6 +95,10 @@ esac
 
 destination="${root}-local-integration"
 branch=local-integration/current
+if [[ $name_set -eq 1 ]]; then
+  destination="${destination}-${name}"
+  branch="local-integration/${name}"
+fi
 if [[ -e $destination || -L $destination ]]; then
   echo "error: destination already exists; inspect it before another integration: $destination" >&2
   exit 1

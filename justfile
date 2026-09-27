@@ -46,6 +46,14 @@ local-integrate refs:
 local-integrate-dry-run refs:
     bash ./scripts/local-integrate.sh --dry-run {{ quote(refs) }}
 
+# Keep the existing integration candidate and create a second, immutable one.
+# Example: just local-integrate-named second '2@<full-sha> 3@<full-sha>'
+local-integrate-named name refs:
+    bash ./scripts/local-integrate.sh --name {{ quote(name) }} {{ quote(refs) }}
+
+local-integrate-named-dry-run name refs:
+    bash ./scripts/local-integrate.sh --dry-run --name {{ quote(name) }} {{ quote(refs) }}
+
 # PRs go from the fork to upstream main through the merge queue (ADR-0001).
 # Set remotes: origin = your private fork (the only push target), upstream = xoxd-ai with push DISABLED.
 fork-setup fork_owner="Jesssullivan":
