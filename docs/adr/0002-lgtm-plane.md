@@ -927,13 +927,26 @@ any host); the agent asks, waits, and records the result.
   uncertain and the canary decides. Canary: run the candidate (1.5.1 or
   1.6.0) on honey on a spare loopback port published through
   `tailscale serve`, and from a seat issue a bare `GET
-  http://honey.taila4c78d.ts.net:<port>/mcp`. `405`/`406` means the Host was
-  accepted (the registry's existing health-check convention,
-  `mcp_registry.yml:950-953`); `403` means pick a Host strategy before the
-  bump — bind to honey's exact tailnet IP (the node-exporter-darwin
-  exact-bind precedent) or put a Host-rewriting loopback proxy in front. The
-  HTTP status goes in the receipt. The canary is a unit the operator
-  starts and later stops (R-N11); the agent records both.
+  http://honey.taila4c78d.ts.net:<port>/mcp`. `405`/`406`, or `200` with
+  `Content-Type: text/event-stream`, means the transport accepted that
+  Host. A `200` with another content type does not pass. Bare GET success
+  alone does not establish MCP readiness: JSON-RPC `initialize` must
+  return the candidate mcp-grafana version, and `tools/list` must include
+  `search_tempo_traces` and `get_tempo_trace`. The successful Tempo calls
+  and budget checks below remain required for full L0 acceptance.
+  `403` rejects that Host; pick a Host strategy before the bump — bind to
+  honey's exact tailnet IP (the node-exporter-darwin exact-bind precedent)
+  or put a Host-rewriting loopback proxy in front — then repeat the probes.
+  Record HTTP status and content type, initialize/version and tool-list
+  evidence in the receipt. The canary is a unit the operator starts and
+  later stops (R-N11); the agent records both.
+  *Corrected 2026-09-27 UTC (SWB-R29; no ruling change):* the previous
+  wording named only 405/406. Lab's canary already accepts 200 SSE and
+  separately checks initialize (`lab@430f6e37ed9657478f61d2708ff56bb7b3d35340`
+  `scripts/validation/mcp-plane-canary.py:5-14,97-105,249-274,315-333`).
+  TIN-4655 comment `750738aa-3fda-4828-9857-a934c2a20920` records the
+  read-only canary packet and this interpretation; it claims no live L0
+  acceptance.
 - **Scope.** Bump 0.17.2 → ≥ 1.5.0 with the four platform hashes
   re-prefetched; pin `--usage-stats=disabled` explicitly (added in 1.5.0,
   `CHANGELOG.md:34`); keep the Viewer service account. **Measure the `ops`
@@ -952,8 +965,12 @@ any host); the agent asks, waits, and records the result.
   the L4 address in the baseline). Proxied Tempo tools wait for a separately
   measured allowlist. *Superseded 2026-09-26:* retargeting was open.
 - **Exit, all must hold:**
-  - the canary status is recorded and, if it was 403, the chosen Host
-    strategy is in place and re-probed to 405/406;
+  - the allowed Host returns 405/406 or 200 SSE on bare GET; any 403 is
+    resolved by the chosen Host strategy and re-probed. Record status and
+    content type; an unlisted Host is rejected with 403;
+  - JSON-RPC `initialize` identifies the candidate mcp-grafana version,
+    and `tools/list` includes `search_tempo_traces` and `get_tempo_trace`;
+    bare GET transport acceptance alone cannot satisfy this exit;
   - the pre-switch `status.json` measurement against the canary shows `ops`
     at ≤ 100 tools and every composed name ≤ 64 characters, and that
     receipt predates the honey switch;
