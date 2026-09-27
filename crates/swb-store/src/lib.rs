@@ -192,8 +192,22 @@ impl Store {
             .map_err(sql_err)?;
         Ok(json!({"agent_id":me,"state":if changed == 1 {"ended"} else {"unknown"}}))
     }
-    pub fn peers(&self) -> Result<Value, String> {
+    pub fn peers(&self, me: Option<&str>) -> Result<Value, String> {
         let db = self.0.lock().map_err(|_| "store lock poisoned")?;
+        if let Some(me) = me {
+            if !valid_agent_id(me) {
+                return Err("invalid me".into());
+            }
+            let updated = db
+                .execute(
+                    "UPDATE sessions SET last_seen=unixepoch(), ended=0 WHERE agent_id=?1",
+                    [me],
+                )
+                .map_err(sql_err)?;
+            if updated == 0 {
+                return Err("unregistered me".into());
+            }
+        }
         let mut stmt = db.prepare("SELECT agent_id,harness,host,proc_start,last_seen,ended FROM sessions ORDER BY agent_id").map_err(sql_err)?;
         let rows = stmt.query_map([], |r| {
             let seen: i64 = r.get(4)?; let ended: i64 = r.get(5)?;
@@ -306,8 +320,11 @@ impl Store {
         }
         for key in ["ruling", "reply_format"] {
             if input.get(key).is_some_and(|v| {
-                !v.as_str()
-                    .is_some_and(|s| s.len() <= 512 && !s.chars().any(char::is_control))
+                !v.as_str().is_some_and(|s| {
+                    (key != "ruling" || !s.is_empty())
+                        && s.len() <= 512
+                        && !s.chars().any(char::is_control)
+                })
             }) {
                 return Err(format!("invalid {key}"));
             }
@@ -521,7 +538,7 @@ impl Store {
             .unwrap_or(0);
         let unacked: i64 = db
             .query_row(
-                "SELECT COUNT(*) FROM messages WHERE state NOT IN ('acked','expired')",
+                "SELECT COUNT(*) FROM messages WHERE state NOT IN ('acked','expired') AND expires_at>unixepoch()",
                 [],
                 |r| r.get(0),
             )
@@ -564,9 +581,9 @@ mod tests {
             .unwrap();
         let me = registration["agent_id"].as_str().unwrap();
         assert_eq!(s.end(me, "old").unwrap()["state"], "unknown");
-        assert_eq!(s.peers().unwrap()["peers"][0]["state"], "live");
+        assert_eq!(s.peers(None).unwrap()["peers"][0]["state"], "live");
         assert_eq!(s.end(me, "new").unwrap()["state"], "ended");
-        assert_eq!(s.peers().unwrap()["peers"][0]["state"], "ended");
+        assert_eq!(s.peers(None).unwrap()["peers"][0]["state"], "ended");
     }
     #[test]
     fn thread_sequence_survives_pruned_latest_ack() {
@@ -616,11 +633,11 @@ mod tests {
         let sent = s
             .send(&json!({"from":from,"to":to,"ticket":"none","body":"hello"}))
             .unwrap();
-        let peers = s.peers().unwrap();
+        let peers = s.peers(None).unwrap();
         assert_eq!(peers["peers"][0]["state"], "live");
         assert_eq!(peers["peers"][1]["state"], "gone");
         s.inbox(to, 1).unwrap();
-        let peers = s.peers().unwrap();
+        let peers = s.peers(None).unwrap();
         assert_eq!(peers["peers"][1]["state"], "live");
         s.0.lock()
             .unwrap()
@@ -628,9 +645,53 @@ mod tests {
             .unwrap();
         s.ack(to, sent.envelope["msg_id"].as_str().unwrap())
             .unwrap();
-        let peers = s.peers().unwrap();
+        let peers = s.peers(None).unwrap();
         assert_eq!(peers["peers"][0]["state"], "gone");
         assert_eq!(peers["peers"][1]["state"], "live");
+    }
+
+    #[test]
+    fn peers_renews_only_registered_explicit_caller() {
+        let s = Store::memory().unwrap();
+        let caller = "claude:honey:1:a";
+        let other = "pi:sting:2:b";
+        for (harness, host, pid, session_id) in
+            [("claude", "honey", 1, "a"), ("pi", "sting", 2, "b")]
+        {
+            s.register(&json!({"harness":harness,"host":host,"pid":pid,"session_id":session_id,"proc_start":"1"})).unwrap();
+        }
+        s.0.lock()
+            .unwrap()
+            .execute("UPDATE sessions SET last_seen=unixepoch()-30000", [])
+            .unwrap();
+        let passive = s.peers(None).unwrap();
+        assert_eq!(passive["peers"][0]["state"], "gone");
+        assert_eq!(passive["peers"][1]["state"], "gone");
+        assert_eq!(
+            s.peers(Some("codex:honey:3:unknown")).unwrap_err(),
+            "unregistered me"
+        );
+        assert_eq!(s.peers(Some("invalid")).unwrap_err(), "invalid me");
+        let active = s.peers(Some(caller)).unwrap();
+        assert_eq!(active["peers"][0]["agent_id"], caller);
+        assert_eq!(active["peers"][0]["state"], "live");
+        assert_eq!(active["peers"][1]["agent_id"], other);
+        assert_eq!(active["peers"][1]["state"], "gone");
+    }
+
+    #[test]
+    fn metrics_excludes_expired_message_without_inbox_poll() {
+        let s = Store::memory().unwrap();
+        let sent = s.send(&json!({"from":"claude:honey:1:a","to":"pi:sting:2:b","ticket":"none","body":"hello"})).unwrap();
+        assert!(s.metrics().unwrap().contains("swb_mailbox_unacked 1\n"));
+        s.0.lock()
+            .unwrap()
+            .execute(
+                "UPDATE messages SET expires_at=unixepoch()-1 WHERE msg_id=?1",
+                [sent.envelope["msg_id"].as_str().unwrap()],
+            )
+            .unwrap();
+        assert!(s.metrics().unwrap().contains("swb_mailbox_unacked 0\n"));
     }
 
     #[test]
@@ -646,6 +707,9 @@ mod tests {
         assert_eq!(s.send(&expires).unwrap_err(), "invalid reply_expires");
         expires["reply_expires"] = json!("now");
         assert_eq!(s.send(&expires).unwrap_err(), "invalid reply_expires");
+        let mut ruling = base.clone();
+        ruling["ruling"] = json!("");
+        assert_eq!(s.send(&ruling).unwrap_err(), "invalid ruling");
         let mut extra = base;
         extra["authority"] = json!("operator");
         let sent = s.send(&extra).unwrap();
@@ -672,6 +736,7 @@ mod tests {
         assert_eq!(conflict, "msg_id conflict");
         let got = s.inbox(to, 10).unwrap();
         assert_eq!(got["messages"][0]["delivery_count"], 1);
+        assert_eq!(s.inbox(to, 10).unwrap()["messages"][0]["delivery_count"], 2);
         assert_eq!(
             s.ack(to, "01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap()["state"],
             "acked"

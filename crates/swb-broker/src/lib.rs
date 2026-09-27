@@ -39,7 +39,11 @@ fn operation(store: &Store, name: &str, args: &Value) -> Result<Value, String> {
                 .and_then(Value::as_str)
                 .ok_or("missing proc_start")?,
         ),
-        "peers" => store.peers(),
+        "peers" => store.peers(
+            args.get("me")
+                .map(|v| v.as_str().ok_or("invalid me"))
+                .transpose()?,
+        ),
         "send" => {
             let outcome = store.send(args)?;
             created = outcome.created;
@@ -108,8 +112,8 @@ fn audit_record(name: &str, args: &Value, result: &Value, body_hmac: Option<&str
 fn tools() -> Vec<Tool> {
     [
         ("register", "Register a self-asserted agent session", json!({"type":"object","required":["harness","host","pid","session_id","proc_start"],"properties":{"harness":{"type":"string"},"host":{"type":"string"},"pid":{"type":"integer"},"session_id":{"type":"string"},"proc_start":{"type":"string"}}})),
-        ("peers", "List current broker session leases", json!({"type":"object","properties":{}})),
-        ("send", "Send a peer-authority message", json!({"type":"object","required":["from","to","ticket","body"],"properties":{"from":{"type":"string"},"to":{"type":"string"},"ticket":{"type":"string"},"body":{"type":"string"},"msg_id":{"type":"string"},"thread_id":{"type":"string"},"in_reply_to":{"type":"string"},"operator_directed":{"type":"boolean"},"ruling":{"type":"string"},"ttl_hours":{"type":"integer"}}})),
+        ("peers", "List session leases; optional registered me renews only that caller's lease; omission is passive discovery", json!({"type":"object","properties":{"me":{"type":"string"}}})),
+        ("send", "Send a peer-authority message", json!({"type":"object","required":["from","to","ticket","body"],"properties":{"from":{"type":"string"},"to":{"type":"string"},"ticket":{"type":"string"},"body":{"type":"string"},"msg_id":{"type":"string"},"thread_id":{"type":"string"},"in_reply_to":{"type":"string"},"operator_directed":{"type":"boolean"},"ruling":{"type":"string","minLength":1,"maxLength":512},"reply_expires":{"type":"string","format":"date-time"},"reply_format":{"type":"string","maxLength":512},"artifacts":{"type":"array","maxItems":20,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":2048}},"ttl_hours":{"type":"integer"}}})),
         ("inbox", "Fetch unacked messages", json!({"type":"object","required":["me"],"properties":{"me":{"type":"string"},"limit":{"type":"integer"},"wait_seconds":{"type":"integer"}}})),
         ("ack", "Acknowledge a received message", json!({"type":"object","required":["me","msg_id"],"properties":{"me":{"type":"string"},"msg_id":{"type":"string"}}})),
     ].into_iter().map(|(name,description,schema)| Tool::new(name,description,Arc::new(schema.as_object().expect("static object schema").clone()))).collect()
@@ -186,8 +190,14 @@ async fn send(State(store): State<Arc<Store>>, Json(args): Json<Value>) -> Respo
 async fn ack(State(store): State<Arc<Store>>, Json(args): Json<Value>) -> Response {
     run_operation(store, "ack", args).await
 }
-async fn peers(State(store): State<Arc<Store>>) -> Response {
-    run_operation(store, "peers", json!({})).await
+async fn peers(
+    State(store): State<Arc<Store>>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    let args = query
+        .get("me")
+        .map_or_else(|| json!({}), |me| json!({"me":me}));
+    run_operation(store, "peers", args).await
 }
 async fn inbox(
     State(store): State<Arc<Store>>,
@@ -315,6 +325,16 @@ mod tests {
                 .iter()
                 .all(|t| t.input_schema.contains_key("properties"))
         );
+        let peers = tools().into_iter().find(|t| t.name == "peers").unwrap();
+        assert_eq!(peers.input_schema["properties"]["me"]["type"], "string");
+        let send = tools().into_iter().find(|t| t.name == "send").unwrap();
+        let props = &send.input_schema["properties"];
+        for key in ["artifacts", "reply_expires", "reply_format"] {
+            assert!(
+                props.get(key).is_some(),
+                "missing {key} in advertised send schema"
+            );
+        }
     }
     #[tokio::test]
     async fn rmcp_streamable_http_initialize_and_tools() {
