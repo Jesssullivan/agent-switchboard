@@ -395,7 +395,8 @@ Mimir series, the lookup recipes, the outbox and the L0–L5 phases — is
     `tinyland-nix`);
   - it runs for `pull_request`, `merge_group` and `push: main`;
   - `ci-ok` is the one required aggregate check;
-  - the image is published by digest from main;
+  - the image is published by digest from reviewed main by default; SWB-R50
+    permits one exact local candidate exception while GF is in development;
   - the repo is private, as the template requires.
 - **Canonical repo:** `xoxd-ai/agent-switchboard`. Its ruleset on `main`
   requires:
@@ -422,6 +423,38 @@ Mimir series, the lookup recipes, the outbox and the L0–L5 phases — is
     land.
   - `just check` on sting or honey is the pre-queue signal (`just
     remote-check` from neo).
+- **SWB-R49 local integration (2026-09-27):** GF is still in development, so
+  the current source-integration lane uses `just local-integrate` with pinned,
+  signature-verified PR heads, signed local merge commits and Honey's Bazel
+  `just check` (Sting fallback). The recipe creates a separate worktree and
+  does not push or alter GitHub main, PRs or the ruleset. The original P1a
+  merge-queue exit and GitHub main landing remain separate, unproved gates;
+  local checks allow P1b functional work to continue while those gates wait.
+- **SWB-R50 immutable local candidate (2026-09-27):** The operator approved
+  publishing only the signed #2–#5 local integration candidate identified in
+  the TIN-4655 ruling comment, by its immutable OCI manifest digest, for the
+  blahaj-owned rollout. Its Honey build, checks and restricted rootless smoke
+  are recorded in PR #6. Publication must preserve that digest and record
+  registry readback. This exception neither changes GitHub main nor proves
+  production deployment, L0 or cross-harness acceptance. Reviewed-main
+  publication remains the default for later images.
+- **SWB-R51 shared-platform exception (2026-09-27):** blahaj owns the
+  broker stack, retained PVC/restore, tailnet routing and governed rollout.
+  Source/image ownership and harness/Home Manager delivery stay separate.
+- **SWB-R52 first rollout (2026-09-27):** use the 1 Gi RWO
+  `openebs-bumble-messaging-retain` PVC and the Tailscale operator's actual
+  issued MagicDNS hostname. Read that hostname back before setting the exact
+  Host allowlist or client URL; a proposed alias alone is insufficient.
+- **SWB-R53 exact candidate publication (2026-09-27):** publication approval
+  covers only `b5158729355e836a3a98ade90d7649690e7a6900`. The immutable
+  manifest and non-secret registry readback are carried by
+  [`approved-broker.json`](../releases/approved-broker.json). Source successors
+  do not inherit authority to publish a different image.
+- **SWB-R54 state custody (2026-09-27):** TIN-5105 is blahaj-operator-owned
+  dedicated OpenTofu state commissioning. Backend, separate identity/carrier,
+  backup, lock contention/release and scratch restore receipts must precede
+  backend release and the separately governed broker rollout. Source review
+  is not credential issuance or custody completion.
 - **Census:** one clone per repo. The fork is recorded in
   `tinyland.repo.json` `contracts.agent_contract` as free text, because the
   manifest schema has no fork field.
@@ -522,7 +555,7 @@ P4, with the scrape job, dashboard and alert drill bundled into P3.
   - Scope: repo scaffold, ruleset, merge queue, private-fork org setting,
     fork, and `fork-setup`.
   - Exit: a trivial PR from the fork runs through the merge queue green.
-  - *Status 2026-09-25:* the exit test (PR #2) waits on runner-group
+  - *Historical status 2026-09-25:* the exit test (PR #2) waits on runner-group
     admission, `xoxd-ai/tinyland-infra#106`, which the GF/infra lane
     sequences, not lab.
 - **L0: read plane in lab.** After P1a in sequence; the canary (SWB-R29)
@@ -536,6 +569,8 @@ P4, with the scrape job, dashboard and alert drill bundled into P3.
     not P1b's.
   - *Superseded 2026-09-25:* "Its scope is in ADR-0002 → Risks and Open
     rulings."
+  - Under SWB-R49, local integration is an interim source-validation path,
+    not evidence that this exit has passed.
 - **P1b: broker MVP.** Repos: this one, blahaj (the
   `tofu/stacks/agent-switchboard` stack and a `tailnet-dns` alias) and lab.
   - The broker ships `register`, `peers`, `send`, `inbox` and `ack`, stamps
@@ -699,6 +734,12 @@ receipts (TIN-4655 comments `6274ecbd` and `fd195b08`) and their PRs.
 | SWB-R21 | 2026-09-25 | Operator interview, relayed to the P1a lane by the orchestrating session; durable carrier: the P1a receipt comment on TIN-4655 | "Yes, start P1a now." |
 | SWB-R22 | 2026-09-25 | Operator interview, relayed by the orchestrating session after the pre-push hook refused a direct push to `main` (R-N12 stop) | "Yes, root commit via API, then PR". One GitHub-side root commit through the contents API is the only direct write to `main`. The scaffold then lands by PR before the ruleset is applied. |
 | SWB-R23 | 2026-09-25 | same | "You flip it in the GitHub UI". The operator turns on forking of private repositories for xoxd-ai. Agents do not change org settings or switch gh logins. |
+| SWB-R49 | 2026-09-27 | TIN-4655 comment `02905283`; operator direction and follow-up choice | "we cannot use GF. we must use local merge recipes." GF is in development. Add a switchboard local integration recipe; GitHub main landing remains a separate gate. |
+| SWB-R50 | 2026-09-27 | TIN-4655 comment `b6375b35`; operator approval | Publish the exact signed #2–#5 local integration candidate by immutable digest for the blahaj-owned rollout, with registry readback. Reviewed-main publication remains the default; GitHub main landing and live acceptance stay separate. |
+| SWB-R51 | 2026-09-27 | TIN-4655 comment `2a68f9de-9c93-4a64-ace0-cbef8a843790` | Narrow blahaj shared-platform broker exception; source/image and harness delivery ownership remain separate. |
+| SWB-R52 | 2026-09-27 | TIN-4655 comment `890d7fd0-5a61-459a-a0fb-f133a270703d` | Bumble retained 1 Gi PVC and actual directly issued MagicDNS; alias after separately proved route. |
+| SWB-R53 | 2026-09-27 | TIN-4655 comment `f76d40d1-ab11-48e4-b13d-e17a424e1d05`; publication receipt `f1b8ebd7-dd58-4577-b609-dcb20251941b` | Publish exact signed candidate b5158729 by immutable GHCR digest with registry readback. |
+| SWB-R54 | 2026-09-27 | TIN-4655 comment `f76d40d1-ab11-48e4-b13d-e17a424e1d05`; child TIN-5105 | Blahaj operator commissions dedicated state custody; rollout held for backend, backup, lock, restore, image, namespace and Secret gates. |
 
 Estate rulings this design depends on:
 
