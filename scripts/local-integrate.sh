@@ -3,6 +3,13 @@
 # This is local source integration, not a GitHub main or deployment operation.
 set -euo pipefail
 
+# SWB-R49 / R-N13: fail before fetching refs or creating integration state.
+# macOS ships Bash 3.2; this recipe needs Bash 4+ for associative arrays.
+if (( BASH_VERSINFO[0] < 4 )); then
+  echo 'error: local integration requires Bash 4 or newer; select a supported Bash on PATH before running just local-integrate' >&2
+  exit 2
+fi
+
 usage() {
   cat <<'EOF'
 Usage: local-integrate.sh [--dry-run] [--name NAME] 'PR@FULL_SHA [PR@FULL_SHA ...]'
