@@ -44,7 +44,9 @@ jobs:
   publish:
     name: publish approved broker image
     if: github.repository == 'xoxd-ai/agent-switchboard' && github.ref_type == 'tag'
-    runs-on: [tinyland-nix, Linux, X64]
+    # Same single ARC scale-set label as ci.yml; extra labels never match a
+    # GloriousFlywheel scale set.
+    runs-on: tinyland-nix
     timeout-minutes: 60
     permissions:
       contents: read
@@ -67,9 +69,16 @@ jobs:
         shell: bash
         env:
           TAG: ${{ github.ref_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           # actions/checkout may leave a lightweight ref for the triggering tag.
+          # The repository is private and checkout did not persist credentials,
+          # so authenticate this one fetch through the environment (never argv).
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
           git fetch --no-tags --force origin "refs/tags/${TAG}:refs/tags/${TAG}" "refs/heads/main:refs/remotes/origin/main"
 
       - name: Import the pinned release signer
@@ -108,13 +117,13 @@ jobs:
         run: |
           export DOCKER_CONFIG="$RUNNER_TEMP/docker-config"
           install -d -m 0700 "$DOCKER_CONFIG"
+          trap 'rm -f "$DOCKER_CONFIG/config.json"' EXIT
           ( umask 077
             auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
             jq -n --arg auth "$auth" '{auths: {"ghcr.io": {auth: $auth}}}' > "$DOCKER_CONFIG/config.json" )
           "$BAZELISK" --ignore_all_rc_files run --lockfile_mode=error \
             --platforms="$BAZEL_PLATFORM" --remote_executor= --remote_cache= \
             //deploy:push
-          rm -f "$DOCKER_CONFIG/config.json"
 
       - name: Read the manifest back from the registry and verify it
         env:
@@ -123,13 +132,15 @@ jobs:
         run: |
           digest="$(tr -d '[:space:]' < bazel-bin/deploy/image.json.sha256)"
           repo_path="${IMAGE_REPOSITORY#ghcr.io/}"
-          token="$(curl --proto '=https' --fail --silent --show-error \
-            -u "x-access-token:${GITHUB_TOKEN}" \
-            "https://ghcr.io/token?service=ghcr.io&scope=repository:${repo_path}:pull" | jq -r .token)"
+          # Credentials reach curl on stdin (-K -), never in argv.
+          token="$(printf 'user = "x-access-token:%s"\n' "$GITHUB_TOKEN" \
+            | curl --proto '=https' --fail --silent --show-error -K - \
+              "https://ghcr.io/token?service=ghcr.io&scope=repository:${repo_path}:pull" | jq -r .token)"
+          echo "::add-mask::${token}"
           evidence="$RUNNER_TEMP/release-evidence"
           install -d "$evidence"
-          curl --proto '=https' --fail --silent --show-error \
-            -H "Authorization: Bearer ${token}" \
+          printf 'header = "Authorization: Bearer %s"\n' "$token" \
+            | curl --proto '=https' --fail --silent --show-error -K - \
             -H "Accept: application/vnd.oci.image.manifest.v1+json" \
             "https://ghcr.io/v2/${repo_path}/manifests/${digest}" \
             --output "$evidence/registry-manifest.json"
