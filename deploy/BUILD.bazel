@@ -43,10 +43,12 @@ pkg_tar(
 )
 
 # R-C268: OCI labels. `source` is constant. `revision` is the commit passed as
-# `--embed_label=<40-hex sha>` (see `just image`), read from the stable
+# `--embed_label=<40-hex sha>`, read from the stable
 # workspace status; without it the value is `unstamped`. Only that one key is
 # read, so BUILD_HOST, BUILD_USER and the volatile status never reach the
-# image. Any other embed label fails the build.
+# image. Any other embed label fails the build. A release passes the
+# approved-broker.json `source` (`just release-image`), not the tag or HEAD,
+# so the label and the digest do not move when the tag sits on a later commit.
 genrule(
     name = "image_labels",
     outs = ["image_labels.txt"],

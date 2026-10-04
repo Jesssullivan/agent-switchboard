@@ -84,6 +84,14 @@ cover a different image.
   value is `unstamped`). Build the release image outside `nix develop`, or
   from a `mkShellNoCC` shell. These change the protected inputs; the file set
   stays at 27 paths.
+- **Release revision label (TIN-4655, comment 3126a35f).** The label is part
+  of the digest, and `release-check` lets the tag sit on a descendant of the
+  approved `source` (an approval or workflow commit). A release therefore
+  labels the image with approved-broker.json `source`, never the tag or HEAD:
+  `just release-image` runs `release-check`, then builds with
+  `--embed_label=$(just release-source)`. The release workflow must pass that
+  same `source` to both its build and its push step, and keep the signature,
+  ancestry, protected-input and digest checks unchanged.
 - **Ruling ID: SWB-R55.** R-C262 and R-C268 named the successor release
   `SWB-R54`, but ADR-0001 already uses SWB-R54 for state custody
   (2026-09-27). R-C274 (operator interview 2026-10-04, TIN-4655 comment
