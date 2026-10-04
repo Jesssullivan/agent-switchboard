@@ -39,6 +39,46 @@ rebuilding or approving another image.
    source in the fork and refresh exact PR heads before a future governed
    landing. Do not enqueue or dispatch GF as part of this lane.
 
+## Injectable clock and the next approved release (R-C262)
+
+R-C262 (operator interview 2026-10-04, TIN-4655 comment `230af90b`) adds a
+clock seam to `swb-store`. It edits `crates/` and the root `BUILD.bazel`,
+which are protected inputs, so after it lands `just release-check` fails
+against SWB-R53 until a new approved release is recorded. SWB-R53 does not
+cover a different image.
+
+- **Production behaviour is unchanged.** `Store::open` and `Store::memory`
+  use `SystemClock`, the truncated Unix seconds SQLite `unixepoch()` returns.
+  Each operation reads the clock once and binds the value into its SQL. The
+  envelope `sent_at`/`expires_at` strings keep their format.
+- **The test control path is off in production builds.** `ManualClock` and
+  the `POST /v1/test/clock` route exist only for the spec live adapter. The
+  route is compiled only with the `test-clock` Cargo feature, carried by the
+  testonly Bazel targets `//crates/swb-broker:swb_broker_test_clock` and
+  `//crates/swb:swb_test_clock`. `//:build`, `//crates/swb:swb` and
+  `//deploy:image` do not enable it. Even the feature binary keeps the wall
+  clock unless `swb serve` starts with `SWB_TEST_CLOCK=1`, and it then
+  refuses any non-loopback listener.
+- **No v2 release shape is needed.** The protected file set (27 paths) and
+  `SOURCE_INPUTS_V1` roots are unchanged; only file contents change. The
+  successor record keeps `swb.approved-release.v1` and needs: the signed
+  source sha that contains this change, its `upstream_main` and `pr_heads`,
+  recomputed `file_sha256` for all 27 paths, and the image digest, manifest
+  size and registry readback from the Sting build. The digest is recorded
+  after that build, in the Land step, never before.
+- **Sequencing with v0.1.0.** R-C268 (operator interview 2026-10-04,
+  TIN-4655 comment `67ebf4f4`) supersedes R-C262's fallback: fix build
+  determinism first, so two clean builds of one source give one digest,
+  then v0.1.0 ships the clock-seam image. SWB-R53 is never published. Until
+  the successor record lands, merging this change makes `release-check`
+  fail against SWB-R53, so it merges together with that record.
+- **Ruling ID: SWB-R55.** R-C262 and R-C268 named the successor release
+  `SWB-R54`, but ADR-0001 already uses SWB-R54 for state custody
+  (2026-09-27). R-C274 (operator interview 2026-10-04, TIN-4655 comment
+  `c4dfd4c8`) keeps SWB-R54 as custody, and the dated correction in
+  TIN-4655 comment `cdde44c6` names this release SWB-R55. Its record is
+  written under that ID.
+
 ## Secrets scan and CODEOWNERS
 
 - `ci-ok` now also requires the `secrets-scan` job: the pinned

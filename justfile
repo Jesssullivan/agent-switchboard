@@ -149,6 +149,11 @@ spec-check: spec-dhall spec-quickcheck spec-liquid
 spec-live url="http://127.0.0.1:18080":
     SWB_SPEC_BROKER_URL={{ quote(url) }} nix run .#spec-live
 
+# The same, with Tick, against a broker on the R-C262 test clock
+# (`swb_test_clock serve` with SWB_TEST_CLOCK=1; see spec/README.md).
+spec-live-clock url="http://127.0.0.1:18080":
+    SWB_SPEC_LIVE_CLOCK=1 SWB_SPEC_BROKER_URL={{ quote(url) }} nix run .#spec-live
+
 # Run `just spec-check` on a build host from a teletype seat (neo). `/.git`
 # without a trailing slash also skips a worktree's .git pointer file, so the
 # copy is a plain path flake.
