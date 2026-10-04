@@ -100,8 +100,8 @@ counter for acks or expiries.
   14 days maximum, SWB-R09).
 - **Why it must be 0:** delivery is at-least-once with receiver-side dedupe
   (ADR-0001 → Mailbox). Duplicates are allowed; loss is not. This indicator
-  is a count, not a ratio, and its expected value is 0 in every window. One
-  occurrence is an incident regardless of any future target.
+  is a count, not a ratio, and its design value is 0 in every window. How a
+  non-zero count is handled is for the targets interview.
 - **Not loss:** a TTL expiry (counted, reported beside the SLI, and a
   delivery problem rather than a durability one); a send that failed or timed
   out before a receipt was returned (the client retries with the same
@@ -145,7 +145,7 @@ counter for acks or expiries.
 ## SLI 3: broker availability on the tailnet
 
 - **Probe definition:** from a tailnet vantage outside the broker's own pod
-  and node, every 30 s, `GET http://<issued-MagicDNS>:8080/v1/peers` with no
+  and node, at a proposed 30 s cadence (not ruled), `GET http://<issued-MagicDNS>:8080/v1/peers` with no
   `me` parameter, a 2 s timeout (the SWB-R10 hook budget) and the exact Host
   header the route allowlists. Success is HTTP 200 with a JSON body that has
   a `peers` array.
