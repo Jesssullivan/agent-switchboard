@@ -16,13 +16,25 @@ per-session plumbing.
   - `swb agentd`, which writes body-less notices to verified Claude sockets.
 
 Design and rulings: [docs/adr/0001-agent-switchboard.md](docs/adr/0001-agent-switchboard.md).
+The LGTM plane (the broker writes through to Tempo, Loki and Mimir; LGTM
+is the read/query/context plane, never the commit path) is
+[docs/adr/0002-lgtm-plane.md](docs/adr/0002-lgtm-plane.md).
 Linear: TIN-4655.
 
 ## Status
 
 **P1a (substrate).** This covers the repo scaffold, the ruleset and merge
 queue, and the fork convention. The crates are compiling stubs, and the
-broker MVP lands in P1b.
+broker MVP lands in P1b. The phase order is R0 → P1a → L0 → the SWB-R27
+decision → P1b → L1 → L2 → P2 → L3 → P3 → L4 → P4; L5 is independent of P4
+and starts once its three gates hold (SWB-R36; ADR-0001 → Phases; the L
+phases are in ADR-0002). P1b includes Pi registration and a threaded round
+trip, and explicit combined broker/LGTM read paths for Junie and Pi with
+measured tool budgets and existing defaults preserved (SWB-R37, SWB-R41).
+L0 is a functional prerequisite for those combined paths. Only telemetry
+scrubbing and provenance proof follow v1; they do not block broker MVP,
+and message bodies remain disabled until the live ACL and redaction gates
+pass (SWB-R33, SWB-R34, SWB-R48).
 
 ## Layout
 
@@ -34,7 +46,7 @@ broker MVP lands in P1b.
 | `crates/swb-agentd` | Per-host push adapter |
 | `crates/swb` | The single `swb` binary |
 | `schemas/` | Envelope v3 JSON schema (draft) |
-| `deploy/` | Image layer; rules_oci image in P1b |
+| `deploy/` | Digest-addressed Linux/amd64 OCI image and explicit GHCR push target |
 | `docs/adr/`, `docs/agent-notes/` | Decisions and durable working notes |
 
 ## Develop
@@ -43,7 +55,8 @@ broker MVP lands in P1b.
 nix develop            # bazelisk, just, cargo (diagnostic), gh, jq
 just fork-setup        # origin = your fork, upstream = xoxd-ai (push disabled)
 just check             # rustfmt, clippy, unit + integration tests (Bazel)
-just build             # swb binary and its image layer
+just build             # swb binary and OCI image
+just image             # build image and print its immutable GHCR reference
 just remote-check      # from neo: run `just check` on sting
 just lock              # regenerate all three lock files together (linux x86_64)
 ```
@@ -51,3 +64,14 @@ just lock              # regenerate all three lock files together (linux x86_64)
 CI is `xoxd-ai/ci-templates` `rust-bazel-application.yml`, pinned by commit,
 on GloriousFlywheel runners. `ci-ok` is the required check, and changes land
 through the merge queue. See [AGENTS.md](AGENTS.md).
+
+Contributions arrive as pull requests from a private fork (`just fork-setup`)
+into `xoxd-ai/agent-switchboard` `main`.
+
+After a reviewed main build, the explicit `bazelisk run //deploy:push` target
+publishes the image by digest without a mutable tag. Run `just image` on that
+same Linux/amd64 source revision and hand its `ghcr.io/xoxd-ai/agent-switchboard@sha256:…`
+reference to the blahaj owner. PR CI only builds the image and digest target;
+it does not publish. The rollout must supply the measured tailnet
+`SWB_MCP_ALLOWED_HOSTS` and a writable PVC directory for the image's nonroot
+UID 65532.

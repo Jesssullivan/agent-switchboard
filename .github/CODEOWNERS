@@ -1,0 +1,9 @@
+# TIN-4655: every path is owned by the repository owner. The main ruleset does
+# not require code-owner review (0 approvals, ADR-0001); this file names the
+# reviewer for every change and for the release surfaces below.
+*                                   @Jesssullivan
+
+# Release provenance and publication (SWB-R53, R-N13).
+/docs/releases/                     @Jesssullivan
+/scripts/release-check.py           @Jesssullivan
+/deploy/                            @Jesssullivan

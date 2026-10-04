@@ -17,7 +17,7 @@ check:
 
 # Build the application and package targets CI builds.
 build:
-    {{clean_bazel_env}} bazelisk build --lockfile_mode=error //:build //deploy:swb_layer
+    {{clean_bazel_env}} bazelisk build --lockfile_mode=error //:build //deploy:image //deploy:image.digest
 
 # Commit all three. Run on linux x86_64 (sting or honey), the platform CI
 # checks the locks on.
@@ -35,6 +35,46 @@ remote-check host="sting" dir="~/scratch/agent-switchboard-check":
     ssh {{host}} 'mkdir -p {{dir}}'
     rsync -a --delete --exclude '/bazel-*' --exclude '/target/' --exclude '/.git/' ./ {{host}}:{{dir}}/
     ssh {{host}} 'cd {{dir}} && just check'
+
+# SWB-R49 local integration while GF is in development (TIN-4655).
+# Pin each PR to its reviewed full SHA. This creates a separate,
+# signed local merge tree; it never pushes or changes GitHub PR/main state.
+# Example: just local-integrate '2@<full-sha> 3@<full-sha> 4@<full-sha> 5@<full-sha>'
+local-integrate refs:
+    bash ./scripts/local-integrate.sh {{ quote(refs) }}
+
+local-integrate-dry-run refs:
+    bash ./scripts/local-integrate.sh --dry-run {{ quote(refs) }}
+
+# Keep the existing integration candidate and create a second, immutable one.
+# Example: just local-integrate-named second '2@<full-sha> 3@<full-sha>'
+local-integrate-named name refs:
+    bash ./scripts/local-integrate.sh --name {{ quote(name) }} {{ quote(refs) }}
+
+local-integrate-named-dry-run name refs:
+    bash ./scripts/local-integrate.sh --dry-run --name {{ quote(name) }} {{ quote(refs) }}
+
+# SWB-R53 / R-N13: read-only approved-source and supplied OCI evidence checks.
+# No build, publication, registry credentials or deployment admission.
+[positional-arguments]
+release-check *args:
+    python3 ./scripts/release-check.py "$@"
+
+release-check-test:
+    python3 -m unittest discover -s scripts -p test_release_check.py
+
+# The scanners CI's `secrets-scan` job runs (TruffleHog --only-verified, then
+# gitleaks with .gitleaks.toml) over the full history. Both ship in the
+# devShell: `nix develop --command just secrets-scan`. This is the pre-queue
+# signal for a fork PR, whose CI scan is skipped until merge_group.
+secrets-scan:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for tool in trufflehog gitleaks; do
+      command -v "$tool" >/dev/null || { echo "secrets-scan: $tool is not on PATH (use nix develop)" >&2; exit 1; }
+    done
+    trufflehog --no-update git "file://$PWD" --only-verified --fail
+    gitleaks git --config .gitleaks.toml --redact --exit-code 1 .
 
 # PRs go from the fork to upstream main through the merge queue (ADR-0001).
 # Set remotes: origin = your private fork (the only push target), upstream = xoxd-ai with push DISABLED.
@@ -66,10 +106,10 @@ branch type tin slug:
     git fetch upstream
     git switch -c "{{type}}/tin-{{tin}}-{{slug}}-$(date -u +%Y%m%d)" upstream/main
 
-# Stub (P1b): build the rules_oci image (see deploy/BUILD.bazel).
+# Build the immutable Linux/amd64 OCI image and print the exact manifest digest.
 image:
-    @echo "image: not yet wired; lands in P1b with rules_oci (deploy/BUILD.bazel)" >&2
-    @exit 1
+    {{clean_bazel_env}} bazelisk build --lockfile_mode=error //deploy:image //deploy:image.digest
+    @digest="$(cat bazel-bin/deploy/image.json.sha256)" && printf 'ghcr.io/xoxd-ai/agent-switchboard@%s\n' "$digest"
 
 # Stub (P1b): end-to-end round trip against a live broker.
 e2e:
