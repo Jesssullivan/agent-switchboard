@@ -68,12 +68,16 @@ When sources disagree, prefer them in this order:
   `DISABLED`. `just fork-setup` configures both.
 - **Branches:** `<type>/tin-####-<slug>-<yyyymmdd>`. `just branch <type>
   <tin> <slug>` creates one.
-- **PRs** go from the fork to `upstream/main` and land only through the merge
-  queue.
+- **PRs** go from the fork to `upstream/main` and land through the merge
+  queue or, under R-C237/R-C228, by an admin merge after validation on sting.
   - The ruleset on `main` requires signed commits, a PR (0 approvals, merge
     method `merge`) and the `ci-ok` check.
   - The queue settings are MERGE, one entry built at a time, ALLGREEN.
-  - Force-push and deletion are blocked, and nothing bypasses the ruleset.
+  - Force-push and deletion are blocked.
+  - The repository admin role is the ruleset's one bypass actor (R-C237,
+    matching lab R-C11). A PR may land by validating `just check` and
+    `just release-check` on sting, then an admin merge (R-C228); the queue
+    stays configured for everything else.
 - **Fork PRs are gated in the merge queue.** The ci-templates Rust lane
   refuses private runners for fork PRs, and hosted runners are forbidden. So
   on a fork PR both jobs are skipped and `ci-ok` reports as passing. The full

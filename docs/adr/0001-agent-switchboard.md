@@ -409,7 +409,11 @@ Mimir series, the lookup recipes, the outbox and the L0–L5 phases — is
   - the merge queue (MERGE, one entry built at a time, ALLGREEN);
   - no force-push and no deletion.
 
-  It has no bypass actors.
+  Its one bypass actor is the repository admin role (`RepositoryRole` 5,
+  mode `always`), added by R-C237 (operator interview 2026-10-04, TIN-3692)
+  to match lab's R-C11 posture: a pull request may land by local validation
+  on sting plus an admin merge (R-C228), and the merge queue stays configured
+  for everything else. The other rules are unchanged.
 - **Fork (SWB-R08, SWB-R13):** `Jesssullivan/agent-switchboard`, private. It
   requires the xoxd-ai org setting that allows forks of private repositories.
   SWB-R13 authorizes it, and the operator sets it in the GitHub UI (SWB-R23).
