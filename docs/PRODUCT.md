@@ -51,8 +51,10 @@ Status: **holds** = verified today; **gap** = not true on `main`.
    debug log; "not wired" is indistinguishable from "no mail".
 9. **Deploy.** The blahaj owner runs the approved image. *Accept:* one
    documented settings table, `/healthz`, P1b exits met. **Gap:** 0 of 7 P1b
-   exits met; no broker deployed; v0.1.0 blocked on the digest mismatch
-   (rebuilt `b7e8788e` vs SWB-R53 `b0633ecb`).
+   exits met; no broker deployed; v0.1.0 blocked on two things: the GHCR
+   package grants this repo no Actions write access (UI-only operator act),
+   and a rebuild of `main` gives `b7e8788e`, not the SWB-R53 digest
+   `b0633ecb`.
 
 ## Install story (measured on sting, 2026-10-04)
 
@@ -68,17 +70,24 @@ Status: **holds** = verified today; **gap** = not true on `main`.
 The working recipe, until it moves into the README:
 
 ```sh
-just build
-timeout 600 env SWB_DB_PATH=$PWD/scratch.sqlite3 \
+just build                                   # on sting or honey, never neo
+swb=$PWD/bazel-bin/crates/swb/swb
+d="$(mktemp -d "$HOME/scratch-swb.XXXXXX")"
+timeout 600 env SWB_DB_PATH="$d/swb.sqlite3" \
   SWB_LISTEN=127.0.0.1:18080 SWB_METRICS_LISTEN=127.0.0.1:19090 \
-  bazel-bin/crates/swb/swb serve &
-export SWB_BROKER_URL=http://127.0.0.1:18080 SWB_HOST=$(hostname -s) \
+  "$swb" serve &
+# Wait for the listener: a hook that fires first fails silently (SWB-R10).
+until curl -sf http://127.0.0.1:19090/metrics >/dev/null; do sleep 0.1; done
+export SWB_BROKER_URL=http://127.0.0.1:18080 SWB_HOST="$(hostname -s)" \
   SWB_SESSION_PID=40001 SWB_PROC_START=2026-10-04T00:00:00Z
-echo '{"session_id":"sess-a"}' | bazel-bin/crates/swb/swb hook claude SessionStart
-SWB_AGENT_ID=claude:$SWB_HOST:40001:sess-a bazel-bin/crates/swb/swb inbox
+echo '{"session_id":"sess-a"}' | "$swb" hook claude SessionStart
+SWB_AGENT_ID="claude:$SWB_HOST:40001:sess-a" "$swb" inbox
 ```
 
-The broker exits on its own `timeout`; nothing needs to be signalled.
+The broker exits on its own `timeout`; nothing needs to be signalled. It
+prints one JSON audit line per register, send and ack to the same terminal.
+Without the readiness wait, the pasted script registers nothing (re-run on
+sting 2026-10-04: `/v1/peers` got curl exit 7, both hooks exited 0).
 
 Fixes, in order: README quickstart (above); a settings table; `just
 dev-serve` (loopback, scratch DB, self-bounded); `swb --help` on stdout with
@@ -97,7 +106,7 @@ exit 0 (today it exits 2); state where the binary lands
 | `SWB_HOST` | hook, CLI | none | yes |
 | `SWB_SESSION_PID` | hook, CLI | none | yes |
 | `SWB_PROC_START` | hook, CLI | none | yes |
-| `SWB_HARNESS` | `whoami` | none (hooks take it from argv) | for `whoami` |
+| `SWB_HARNESS` | hook, `whoami` | hook: its argv harness, which this overrides; `whoami`: none | for `whoami` |
 | `SWB_SESSION_ID` | `whoami` | none (hooks read `session_id` from stdin) | for `whoami` |
 | `SWB_AGENT_ID` | `inbox` | none; `harness:host:pid:session_id` | for `inbox` |
 
@@ -105,7 +114,9 @@ exit 0 (today it exits 2); state where the binary lands
 
 1. **Hooks are inert and silent.** No lab producer for the identity
    variables; lab's wrapper also discards errors. Claude does not pass its
-   pid, and deriving it from `$PPID` is the ancestry walk R-N11 forbids.
+   pid; a hook's `$PPID` is not guaranteed to be the Claude process, and
+   walking the process tree to find it is the ancestry pattern the R-N11
+   incident record warns against.
 2. **Notice is not actionable.** Wrong command name, no agent id.
 3. **`peers` is unbounded and leaks `proc_start`,** which lets any reader end
    any session through `/v1/end`.
@@ -114,8 +125,8 @@ exit 0 (today it exits 2); state where the binary lands
    `TIN-<n>|none`, ULIDs, id shape `harness:host:pid:session`, 16 KiB body,
    inbox limits) surface only as errors.
 6. **Errors are not actionable:** `invalid agent id`, `unknown envelope
-   field` without the field, CLI drops the JSON error body, every failure
-   is HTTP 400.
+   field` without the field, CLI drops the JSON error body, every error but
+   a `msg_id` conflict (409) is HTTP 400.
 7. **CLI conventions:** no `--version`, help exits 2, `agentd` advertised
    but exits 3, `whoami` registers, one missing variable reported per run.
 8. **Client disagreement:** `swb` rejects a trailing `/` and `https`; lab's Pi
