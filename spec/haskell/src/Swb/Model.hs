@@ -4,6 +4,10 @@
 -- SWB-R16 text in ADR-0001 for claims, which are not implemented in Rust yet.
 -- Time is an abstract clock in seconds that only 'Tick' advances.
 --
+-- The core invariants (per-thread seq, lease transitions, claim listing)
+-- live in Swb.Invariants as LiquidHaskell refinement types (R-C261), and
+-- the model runs those definitions.
+--
 -- The model is one implementation of 'Op' -> 'Res'; the live adapter
 -- (Swb.Live) is another. The properties in Swb.Properties judge a trace of
 -- operations and results and never look inside either implementation.
@@ -24,17 +28,9 @@ module Swb.Model
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import Swb.Constants
+import Swb.Invariants
 
 type Time = Integer
-
-newtype Agent = Agent Int deriving (Eq, Ord, Show)
-
-newtype Thread = Thread Int deriving (Eq, Ord, Show)
-
-newtype Subject = Subject Int deriving (Eq, Ord, Show)
-
--- | peers() classification: ended wins, then the live and idle age bands.
-data LeaseState = Live | Idle | Gone | Ended deriving (Eq, Ord, Show)
 
 data Op
   = Register Agent Int -- ^ agent, proc_start
@@ -52,14 +48,6 @@ data ClaimOutcome
   = Recorded
   | HeldBy Agent
   | Unruled String -- ^ an SWB-R16 "Not yet ruled" case; never asserted
-  deriving (Eq, Show)
-
-data ClaimView = ClaimView
-  { cvHolder :: Agent
-  , cvSubject :: Subject
-  , cvExclusive :: Bool
-  , cvOrphaned :: Bool
-  }
   deriving (Eq, Show)
 
 data Res
@@ -91,23 +79,17 @@ data Msg = Msg
   , mDeliveries :: Integer
   }
 
-data ClaimRec = ClaimRec {crHolder :: Agent, crSubject :: Subject, crExclusive :: Bool, crUntil :: Time}
-
 data St = St
   { now :: Time
   , sessions :: M.Map Agent Session
   , msgs :: [Msg] -- creation order
-  , highWater :: M.Map Thread Integer -- survives prune, like thread_counters
+  , threadLogs :: M.Map Thread [Integer] -- seq log per thread, newest first; survives prune, like thread_counters
   , nextId :: Int
   , claims :: [ClaimRec]
   }
 
 classify :: Constants -> Time -> Time -> Bool -> LeaseState
-classify c t seen ended
-  | ended = Ended
-  | t - seen <= cLiveMaxAge c = Live
-  | t - seen <= cIdleMaxAge c = Idle
-  | otherwise = Gone
+classify c = classifyAge (cLiveMaxAge c) (cIdleMaxAge c)
 
 runModel :: Constants -> [Op] -> Trace
 runModel c = go (St 0 M.empty [] M.empty 0 [])
@@ -145,9 +127,10 @@ step c op s = case op of
     | otherwise -> (RErr "unregistered me", s)
   Send from to th ttl ->
     let s1 = prune c s
-        sq = M.findWithDefault 0 th (highWater s1) + 1
+        lg = appendSeq (M.findWithDefault [] th (threadLogs s1))
+        sq = newest lg
         m = Msg (nextId s1) th sq to (now s1) (now s1 + ttlSeconds c ttl) Nothing 0
-        s2 = s1 {msgs = msgs s1 ++ [m], highWater = M.insert th sq (highWater s1), nextId = nextId s1 + 1}
+        s2 = s1 {msgs = msgs s1 ++ [m], threadLogs = M.insert th lg (threadLogs s1), nextId = nextId s1 + 1}
      in (RSent (mId m) th sq, refresh from s2)
   Inbox a limit ->
     let s1 = prune c s
@@ -175,10 +158,6 @@ step c op s = case op of
           | otherwise = (Recorded, record)
      in (RClaimed (fst outcome), refresh h (snd outcome))
   ListClaims ->
-    let gone h = case M.lookup h (sessions s) of
-          Just x -> classify c (now s) (sSeen x) (sEnded x) == Gone
-          Nothing -> False
-     in ( RClaims [ClaimView (crHolder r) (crSubject r) (crExclusive r) (gone (crHolder r)) | r <- claims s, crUntil r > now s]
-        , s
-        )
+    let holder h = (\x -> classify c (now s) (sSeen x) (sEnded x)) <$> M.lookup h (sessions s)
+     in (RClaims [viewClaim (holder (crHolder r)) r | r <- activeClaims (now s) (claims s)], s)
   Tick d -> (RTicked, s {now = now s + d})

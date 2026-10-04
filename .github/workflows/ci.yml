@@ -26,6 +26,14 @@ name: CI
 #   never changes a release-protected input (scripts/release-check.py
 #   SOURCE_INPUTS_V1); the job fails if the checkout is left dirty.
 #   `just spec-dhall` is the pre-queue signal.
+# - `spec-quickcheck` and `spec-liquid` (R-C261) build the flake checks of
+#   the same names: the Haskell model's QuickCheck properties, and the
+#   LiquidHaskell refinement types in spec/haskell/src/Swb/Invariants.hs.
+#   R-C261 puts them in `ci-ok` only if cheap. They are: every dependency,
+#   LiquidHaskell included, substitutes from cache.nixos.org, and on sting
+#   (2026-10-04, warm store) spec-liquid took 16 s and spec-quickcheck 48 s.
+#   Same gating, and `ci-ok` requires both. `just spec-quickcheck` and
+#   `just spec-liquid` on sting or honey are the pre-queue signals.
 
 on:
   pull_request:
@@ -105,9 +113,41 @@ jobs:
             exit 1
           fi
 
+  spec-quickcheck:
+    name: spec-quickcheck
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: tinyland-nix
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Build the model and run the QuickCheck properties
+        shell: bash
+        run: nix build --no-link -L .#checks.x86_64-linux.spec-quickcheck
+
+  spec-liquid:
+    name: spec-liquid
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: tinyland-nix
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: LiquidHaskell refinement types
+        shell: bash
+        run: nix build --no-link -L .#checks.x86_64-linux.spec-liquid
+
   ci-ok:
     name: ci-ok
-    needs: [rust, secrets-scan, spec-dhall]
+    needs: [rust, secrets-scan, spec-dhall, spec-quickcheck, spec-liquid]
     if: >-
       always()
       && (github.event_name != 'pull_request'
@@ -115,16 +155,18 @@ jobs:
     runs-on: tinyland-nix
     timeout-minutes: 5
     steps:
-      - name: Aggregate the rust-bazel-application lane, secrets scan and spec-dhall
+      - name: Aggregate the rust-bazel-application lane, secrets scan and spec checks
         shell: bash
         env:
           RUST_RESULT: ${{ needs.rust.result }}
           SECRETS_RESULT: ${{ needs.secrets-scan.result }}
           SPEC_DHALL_RESULT: ${{ needs.spec-dhall.result }}
+          SPEC_QUICKCHECK_RESULT: ${{ needs.spec-quickcheck.result }}
+          SPEC_LIQUID_RESULT: ${{ needs.spec-liquid.result }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          echo "event=${EVENT_NAME} rust=${RUST_RESULT} secrets-scan=${SECRETS_RESULT} spec-dhall=${SPEC_DHALL_RESULT}"
+          echo "event=${EVENT_NAME} rust=${RUST_RESULT} secrets-scan=${SECRETS_RESULT} spec-dhall=${SPEC_DHALL_RESULT} spec-quickcheck=${SPEC_QUICKCHECK_RESULT} spec-liquid=${SPEC_LIQUID_RESULT}"
           if [[ "${RUST_RESULT}" != "success" ]]; then
             echo "::error::rust-bazel-application lane result is ${RUST_RESULT}"
             exit 1
@@ -137,4 +179,12 @@ jobs:
             echo "::error::spec-dhall result is ${SPEC_DHALL_RESULT}"
             exit 1
           fi
-          echo "ci-ok: rust-bazel-application lane, secrets scan and spec-dhall passed"
+          if [[ "${SPEC_QUICKCHECK_RESULT}" != "success" ]]; then
+            echo "::error::spec-quickcheck result is ${SPEC_QUICKCHECK_RESULT}"
+            exit 1
+          fi
+          if [[ "${SPEC_LIQUID_RESULT}" != "success" ]]; then
+            echo "::error::spec-liquid result is ${SPEC_LIQUID_RESULT}"
+            exit 1
+          fi
+          echo "ci-ok: rust-bazel-application lane, secrets scan and spec checks passed"

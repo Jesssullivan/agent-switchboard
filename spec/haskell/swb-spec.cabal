@@ -18,6 +18,7 @@ library
   hs-source-dirs:  src
   exposed-modules:
     Swb.Constants
+    Swb.Invariants
     Swb.Live
     Swb.Model
     Swb.Properties

@@ -59,6 +59,13 @@
         pkgs.dhall-json
         pkgs.jq
       ];
+      # R-C261: LiquidHaskell checks Swb.Invariants, which imports only base,
+      # with the GHC plugin and z3 from the locked nixpkgs. Build hosts only.
+      specLiquidSource = nixpkgs.lib.fileset.toSource {
+        root = ./spec/haskell;
+        fileset = ./spec/haskell/src/Swb/Invariants.hs;
+      };
+      liquidGhc = pkgs: pkgs.haskellPackages.ghcWithPackages (p: [ p.liquidhaskell ]);
       # Written out by hand (what cabal2nix would emit) so evaluation needs no
       # import-from-derivation: `nix flake show` and `nix develop .#spec-dhall`
       # keep working on a seat that cannot build (neo has max-jobs = 0).
@@ -164,6 +171,11 @@
               ]
             ))
             pkgs.cabal-install
+            # R-C261: `ghc -fplugin=LiquidHaskell` needs the plugin and z3.
+            # A separate GHC with only LiquidHaskell, so the spec GHC above
+            # stays unchanged.
+            (pkgs.writeShellScriptBin "liquid-ghc" ''exec ${liquidGhc pkgs}/bin/ghc "$@"'')
+            pkgs.z3
           ];
         };
       });
@@ -187,6 +199,23 @@
           touch "$out"
         '';
         spec-quickcheck = swbSpec pkgs;
+        # R-C261: refinement types on the model's core invariants. The plugin
+        # fails the compile on any unproved refinement.
+        spec-liquid =
+          pkgs.runCommand "swb-spec-liquid"
+            {
+              nativeBuildInputs = [
+                (liquidGhc pkgs)
+                pkgs.z3
+              ];
+            }
+            ''
+              export HOME="$TMPDIR"
+              cp -r ${specLiquidSource}/src src
+              chmod -R u+w src
+              ghc -fplugin=LiquidHaskell -fforce-recomp -no-link -outputdir build -isrc src/Swb/Invariants.hs
+              touch "$out"
+            '';
       });
 
       # The swb binary built with the toolchain rust-toolchain.toml pins

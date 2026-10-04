@@ -1,7 +1,8 @@
 # Formal spec (R-C229)
 
 Ruling R-C229 sets the formal stack: Dhall for typed records, and Haskell
-QuickCheck over a pure model of the broker. The operator's guidance, verbatim:
+QuickCheck over a pure model of the broker. Ruling R-C261 adds LiquidHaskell
+refinement types on the model's core invariants. The operator's guidance, verbatim:
 "we already use dhall with flake extensively in our lab; we also like
 quickcheck, which allows for simple, parsimonious properties instead of
 extensive architecture boundary checks."
@@ -22,6 +23,7 @@ without touching the SWB-R53 release lock.
 | `fixtures/blahaj-rustfs-iam-owners.json` | Snapshot of blahaj `owners.json` at commit `a54ff72480657fbecae8960946714081df2adb0e`. Check the live file with `just spec-owners <path>`. |
 | `check-dhall.sh` | The Dhall check. `just spec-dhall` and the flake check `spec-dhall` both run it. |
 | `haskell/` | Cabal package `swb-spec`: the model, the properties and the live adapter. |
+| `haskell/src/Swb/Invariants.hs` | The model's core definitions with LiquidHaskell refinement types (R-C261). Imports only base. |
 
 ## Dhall check
 
@@ -78,6 +80,23 @@ These cases are the questions for the P2 claims ruling packet.
 - A claim refreshes the claimant's session lease, as every other broker
   operation does.
 
+## LiquidHaskell refinement types
+
+R-C261 keeps the QuickCheck properties and adds refinement types on three
+core invariants. The definitions live in `haskell/src/Swb/Invariants.hs`, and
+`Swb.Model` runs them, so the checked code is the code the properties
+exercise.
+
+| Invariant | Proved by | Claim |
+|---|---|---|
+| Per-thread seq | `appendSeq`, type `SeqLog` | A thread's seq log is strictly decreasing newest first, and its newest seq equals its length. Appending always adds a seq above every earlier one on that thread, so seqs run 1, 2, 3, and so on. The log survives prune, like `thread_counters`. |
+| Lease transitions | `decayLemma`, `endedLemma`, `reviveLemma` over `classifyAge` | With no activity of its own, a lease only decays: live, then idle, then gone. Ended stays ended. End always gives ended, and a refresh always gives live. Those are the only edges. |
+| Claim holders | `activeClaims`, `viewClaim` | A listed claim is unexpired, and it is marked orphaned exactly when its holder is gone. So a listed claim's holder is not gone, or the claim is marked for release. A claim refreshes its holder, so the holder is live when the claim is recorded. The model has no explicit release, so this is as far as the model goes. |
+
+Not proved: that `Swb.Model` threads its state through these functions
+correctly. The model module is not LiquidHaskell-checked, because it reads
+the constants through aeson. The QuickCheck trace properties cover it.
+
 ### Running it
 
 Run these on build hosts only (sting or honey), never on neo. From neo, use
@@ -85,8 +104,15 @@ Run these on build hosts only (sting or honey), never on neo. From neo, use
 
 - `just spec-quickcheck` builds the package. The build runs the model
   properties, 1000 cases each.
-- `just spec-check` runs the Dhall check and the properties.
-- The flake checks are `spec-dhall` and `spec-quickcheck`.
+- `just spec-liquid` checks `Swb.Invariants` with the LiquidHaskell GHC
+  plugin and z3 from the locked nixpkgs. Any unproved refinement fails the
+  compile.
+- `just spec-check` runs the Dhall check, the properties and LiquidHaskell.
+- The flake checks are `spec-dhall`, `spec-quickcheck` and `spec-liquid`.
+- In CI, `spec-dhall`, `spec-quickcheck` and `spec-liquid` are jobs that
+  `ci-ok` requires (R-C255, R-C261).
+- In `nix develop .#spec`, run `liquid-ghc -fplugin=LiquidHaskell -isrc
+  src/Swb/Invariants.hs` from `haskell/` to iterate.
 
 ### Live adapter
 
