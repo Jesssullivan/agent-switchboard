@@ -136,18 +136,25 @@ spec-owners owners_json:
 spec-quickcheck:
     nix build --no-link -L .#swb-spec
 
-# Both spec checks. Build hosts only; from neo use `just remote-spec-check`.
-spec-check: spec-dhall spec-quickcheck
+# Build hosts only (sting or honey), never neo: LiquidHaskell checks the
+# refinement types in spec/haskell/src/Swb/Invariants.hs (R-C261).
+spec-liquid:
+    nix build --no-link -L ".#checks.$(nix eval --raw --impure --expr builtins.currentSystem).spec-liquid"
+
+# Every spec check. Build hosts only; from neo use `just remote-spec-check`.
+spec-check: spec-dhall spec-quickcheck spec-liquid
 
 # Build hosts only. Run the properties against a disposable broker that is
 # already listening on loopback (see spec/README.md); refuses other URLs.
 spec-live url="http://127.0.0.1:18080":
     SWB_SPEC_BROKER_URL={{ quote(url) }} nix run .#spec-live
 
-# Run `just spec-check` on a build host from a teletype seat (neo).
+# Run `just spec-check` on a build host from a teletype seat (neo). `/.git`
+# without a trailing slash also skips a worktree's .git pointer file, so the
+# copy is a plain path flake.
 remote-spec-check host="sting" dir="~/scratch/agent-switchboard-spec":
     ssh {{host}} 'mkdir -p {{dir}}'
-    rsync -a --delete --exclude '/bazel-*' --exclude '/target/' --exclude '/.git/' --exclude '/spec/haskell/dist-newstyle/' ./ {{host}}:{{dir}}/
+    rsync -a --delete --exclude '/bazel-*' --exclude '/target/' --exclude '/.git' --exclude '/spec/haskell/dist-newstyle/' ./ {{host}}:{{dir}}/
     ssh {{host}} 'cd {{dir}} && just spec-check'
 
 # Stub (P1b): end-to-end round trip against a live broker.
