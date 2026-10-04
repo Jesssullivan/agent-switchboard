@@ -115,9 +115,43 @@ branch type tin slug:
     git switch -c "{{type}}/tin-{{tin}}-{{slug}}-$(date -u +%Y%m%d)" upstream/main
 
 # Build the immutable Linux/amd64 OCI image and print the exact manifest digest.
-image:
-    {{clean_bazel_env}} bazelisk build --lockfile_mode=error //deploy:image //deploy:image.digest
-    @digest="$(cat bazel-bin/deploy/image.json.sha256)" && printf 'ghcr.io/xoxd-ai/agent-switchboard@%s\n' "$digest"
+# R-C268: the image's org.opencontainers.image.revision label is the commit
+# given here (default: HEAD, and then the worktree must be clean). Two builds
+# of one commit give one digest. Build outside `nix develop`: a Nix C compiler
+# in PATH leaks into rules_cc, and //deploy:swb_checked refuses that binary.
+# For a release use `just release-image`, never the HEAD default.
+image revision="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rev="{{revision}}"
+    if [ -z "$rev" ]; then
+      if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+        echo "image: worktree has changes; commit them or pass an explicit revision" >&2
+        exit 1
+      fi
+      rev="$(git rev-parse HEAD)"
+    fi
+    {{clean_bazel_env}} bazelisk build --lockfile_mode=error --embed_label="$rev" //deploy:image //deploy:image.digest
+    digest="$(cat bazel-bin/deploy/image.json.sha256)" && printf 'ghcr.io/xoxd-ai/agent-switchboard@%s\n' "$digest"
+
+# The verified source commit of the approved release:
+# docs/releases/approved-broker.json `source`, a 40-hex sha.
+release-source:
+    @python3 -c 'import json,re,sys; s=json.load(open("docs/releases/approved-broker.json")).get("source",""); sys.exit("release-source: approved-broker.json source is not a 40-hex sha") if not re.fullmatch("[0-9a-f]{40}", s) else print(s)'
+
+# The release image (TIN-4655, comment 3126a35f). The revision label, and so
+# the digest, comes from the approved `source`, never from the tag or HEAD:
+# a tag may sit on a later approval or workflow commit, and labelling that
+# commit would change the digest the record approves. release-check runs
+# first (signature, ancestry, protected inputs). The release workflow passes
+# this same `source` as --embed_label to both its build and its push.
+release-image:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    python3 ./scripts/release-check.py
+    src="$(just release-source)"
+    git merge-base --is-ancestor "$src" HEAD || { echo "release-image: approved source $src is not an ancestor of HEAD" >&2; exit 1; }
+    just image "$src"
 
 # R-C229 formal spec. Dhall checks are interpreters only and run on any
 # seat, neo included: `nix shell` substitutes the tools from the locked
