@@ -67,13 +67,21 @@ release-check-test:
 # gitleaks with .gitleaks.toml) over the full history. Both ship in the
 # devShell: `nix develop --command just secrets-scan`. This is the pre-queue
 # signal for a fork PR, whose CI scan is skipped until merge_group.
+# nixpkgs wraps trufflehog with `--no-update` already, and kingpin refuses a
+# repeated flag ("flag 'no-update' cannot be repeated"), so the recipe adds it
+# only when trufflehog on PATH is not a wrapper script carrying it (R-C255, TIN-4655).
 secrets-scan:
     #!/usr/bin/env bash
     set -euo pipefail
     for tool in trufflehog gitleaks; do
       command -v "$tool" >/dev/null || { echo "secrets-scan: $tool is not on PATH (use nix develop)" >&2; exit 1; }
     done
-    trufflehog --no-update git "file://$PWD" --only-verified --fail
+    th="$(command -v trufflehog)"
+    no_update=(--no-update)
+    if [[ "$(head -c 2 "$th")" == '#!' ]] && grep -q -- '--no-update' "$th"; then
+      no_update=()
+    fi
+    trufflehog ${no_update[@]+"${no_update[@]}"} git "file://$PWD" --only-verified --fail
     gitleaks git --config .gitleaks.toml --redact --exit-code 1 .
 
 # PRs go from the fork to upstream main through the merge queue (ADR-0001).

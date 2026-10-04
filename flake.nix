@@ -24,7 +24,15 @@
         "aarch64-darwin"
         "x86_64-darwin"
       ];
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      # nixpkgs with rust-overlay applied, so the devShell and packages.swb
+      # draw from the same rust-bin release.
+      pkgsFor =
+        system:
+        import nixpkgs {
+          inherit system;
+          overlays = [ rust-overlay.overlays.default ];
+        };
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (pkgsFor system));
       # R-C239: lab consumes `packages.<system>.swb` instead of building swb
       # with its own (older) nixpkgs rustc.
       packageSystems = [
@@ -36,13 +44,15 @@
     in
     {
       # Bazel (via bazelisk and .bazelversion) is the build authority. Cargo,
-      # rustfmt and clippy here are diagnostic mirrors only.
+      # rustfmt and clippy here are diagnostic mirrors only. R-C255: they come
+      # from the rust-overlay release rust-toolchain.toml pins (1.97.1, the
+      # one packages.swb builds with), with that file's components, instead
+      # of nixpkgs' older rustc.
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           packages = with pkgs; [
+            (rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
             bazelisk
-            cargo
-            clippy
             gh
             git
             gitleaks
@@ -50,8 +60,6 @@
             just
             python3
             rsync
-            rustc
-            rustfmt
             trufflehog
           ];
         };
@@ -64,10 +72,7 @@
       packages = nixpkgs.lib.genAttrs packageSystems (
         system:
         let
-          pkgs = import nixpkgs {
-            inherit system;
-            overlays = [ rust-overlay.overlays.default ];
-          };
+          pkgs = pkgsFor system;
           toolchain = pkgs.rust-bin.stable.${rustChannel}.minimal;
           rustPlatform = pkgs.makeRustPlatform {
             cargo = toolchain;
