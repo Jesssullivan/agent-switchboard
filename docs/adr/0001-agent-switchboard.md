@@ -476,6 +476,15 @@ Mimir series, the lookup recipes, the outbox and the L0–L5 phases — is
    (`transport: linear`).
 4. Otherwise: the operator.
 
+### Service level indicators
+
+*Added 2026-10-04 (R-C263, TIN-4655 comment `230af90b`).*
+[docs/operations/SLO.md](../operations/SLO.md) defines four SLIs: delivery
+latency p50/p99, lost acknowledged messages (must be 0 under at-least-once),
+broker availability on the tailnet, and lease staleness against the 900 s
+session lease. It sets no targets: measure on the live broker first, then an
+operator interview sets them. There is no customer SLA.
+
 ## Deltas from the draft
 
 | Area | Approved draft | Ruled design | Ruling |
