@@ -54,7 +54,7 @@ local-integrate-named name refs:
 local-integrate-named-dry-run name refs:
     bash ./scripts/local-integrate.sh --dry-run --name {{ quote(name) }} {{ quote(refs) }}
 
-# SWB-R53 / R-N13: read-only approved-source and supplied OCI evidence checks.
+# SWB-R55 / R-N13: read-only approved-source and supplied OCI evidence checks.
 # No build, publication, registry credentials or deployment admission.
 [positional-arguments]
 release-check *args:

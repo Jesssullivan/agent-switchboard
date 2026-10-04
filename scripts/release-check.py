@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only source/OCI evidence check for the SWB-R53 approved broker.
+"""Read-only source/OCI evidence check for the approved broker (SWB-R55).
 
 No network, build, publication, activation or process-control action is taken.
 Supplied registry bytes are evidence from the caller, not a fresh pull proof.
@@ -108,7 +108,7 @@ def main():
     parser.add_argument("--registry-manifest", type=Path)
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
-    report = {"rulings": ["SWB-R53", "SWB-R49", "R-N13"], "live_acceptance": False, "fresh_registry_pull": False, "publication_authorized": False}
+    report = {"rulings": ["SWB-R55", "SWB-R49", "R-N13"], "live_acceptance": False, "fresh_registry_pull": False, "publication_authorized": False}
     try:
         release = json.loads((repo / "docs/releases/approved-broker.json").read_text())
         report.update(check_source(repo, release), image=release["image"])

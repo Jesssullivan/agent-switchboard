@@ -457,6 +457,13 @@ Mimir series, the lookup recipes, the outbox and the L0–L5 phases — is
   manifest and non-secret registry readback are carried by
   [`approved-broker.json`](../releases/approved-broker.json). Source successors
   do not inherit authority to publish a different image.
+- **SWB-R55 clock-seam release (2026-10-04):** R-C304 approves only
+  `d8ebfdbf4e7c52ba43a05c2d5c3f4cca520c18e9` at
+  `sha256:c9170c7121821322376c16230f3b0eb5f10001aebfbce7e83c20c4afa5dd2236`
+  (R-C262 clock seam, R-C268 determinism, R-C274 ID). The source is a GitHub
+  merge commit, so [`release-signers.asc`](../releases/release-signers.asc)
+  holds GitHub's merge key `B5690EEEBB952194` beside the operator release
+  key. SWB-R53 is never published.
 - **SWB-R54 state custody (2026-09-27):** TIN-5105 is blahaj-operator-owned
   dedicated OpenTofu state commissioning. Backend, separate identity/carrier,
   backup, lock contention/release and scratch restore receipts must precede
@@ -756,6 +763,7 @@ receipts (TIN-4655 comments `6274ecbd` and `fd195b08`) and their PRs.
 | SWB-R52 | 2026-09-27 | TIN-4655 comment `890d7fd0-5a61-459a-a0fb-f133a270703d` | Bumble retained 1 Gi PVC and actual directly issued MagicDNS; alias after separately proved route. |
 | SWB-R53 | 2026-09-27 | TIN-4655 comment `f76d40d1-ab11-48e4-b13d-e17a424e1d05`; publication receipt `f1b8ebd7-dd58-4577-b609-dcb20251941b` | Publish exact signed candidate b5158729 by immutable GHCR digest with registry readback. |
 | SWB-R54 | 2026-09-27 | TIN-4655 comment `f76d40d1-ab11-48e4-b13d-e17a424e1d05`; child TIN-5105 | Blahaj operator commissions dedicated state custody; rollout held for backend, backup, lock, restore, image, namespace and Secret gates. |
+| SWB-R55 | 2026-10-04 | R-C304 (operator interview, TIN-4655 comment `dcb5b687`); R-C262, R-C268, R-C274 | Approve the clock-seam release: signed source d8ebfdbf (GitHub merge key B5690EEEBB952194) at digest `sha256:c9170c71…` (4579-byte manifest), from two matching clean Sting builds. Recorded in `approved-broker.json`; v0.1.0 publishes only this digest. SWB-R53 is never published. |
 
 Estate rulings this design depends on:
 
