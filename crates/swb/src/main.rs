@@ -501,11 +501,11 @@ fn predicted_identity(lookup: Lookup) -> Result<Identity, Check> {
         let kind = harness.unwrap_or_else(|| "<harness>".into());
         let tail = session.unwrap_or_else(|| "<session>".into());
         return Ok(Identity::Partial {
-            prefix: format!("{kind}:{host}:{pid}:{tail}"),
+            prefix: format!("{kind}:{host}:{pid_num}:{tail}"),
             unknown,
         });
     };
-    let agent_id = format!("{harness}:{host}:{pid}:{session}");
+    let agent_id = format!("{harness}:{host}:{pid_num}:{session}");
     if !valid_agent_id(&agent_id) {
         return Err(fail(
             "derived agent id is invalid or over 512 bytes",
@@ -1462,6 +1462,32 @@ mod tests {
         let requests = server.join().unwrap();
         assert_eq!(requests.len(), 1);
         assert!(requests[0].starts_with("GET /v1/peers "));
+    }
+
+    #[test]
+    fn predicted_identity_formats_the_parsed_pid() {
+        // The broker mints the id from the numeric pid, so "+0041" must not
+        // survive into the predicted id or the partial prefix.
+        let pairs = [
+            ("SWB_HOST", "sting"),
+            ("SWB_SESSION_PID", "+0041"),
+            ("SWB_PROC_START", "start-41"),
+            ("SWB_HARNESS", "codex"),
+            ("SWB_SESSION_ID", "t-9"),
+        ];
+        match predicted_identity(&lookup_of(&pairs)) {
+            Ok(Identity::Full { agent_id, payload }) => {
+                assert_eq!(agent_id, "codex:sting:41:t-9");
+                assert_eq!(payload["pid"], 41);
+            }
+            _ => panic!("expected a full identity"),
+        }
+        match predicted_identity(&lookup_of(&pairs[..3])) {
+            Ok(Identity::Partial { prefix, .. }) => {
+                assert_eq!(prefix, "<harness>:sting:41:<session>");
+            }
+            _ => panic!("expected a partial identity"),
+        }
     }
 
     #[test]
