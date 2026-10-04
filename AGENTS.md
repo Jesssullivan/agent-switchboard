@@ -61,6 +61,21 @@ When sources disagree, prefer them in this order:
 - **CI runs Bazel with `--ignore_all_rc_files`.** Nothing a CI target needs
   may live in `.bazelrc`.
 
+## Formal spec (R-C229)
+
+- `spec/` holds the Dhall types and records (approved-broker.json, the blahaj
+  owners.json shape, broker constants) and a Haskell QuickCheck model with
+  five trace properties. See [spec/README.md](spec/README.md).
+- `just spec-dhall` runs anywhere, neo included (interpreters only).
+  `just spec-quickcheck` and `just spec-check` compile Haskell: run them on
+  sting or honey, or `just remote-spec-check` from neo.
+- CI's `spec-dhall` job runs the same Dhall check and `ci-ok` requires it
+  (R-C255). It is skipped on a fork PR like the other jobs, so run
+  `just spec-dhall` before queueing.
+- Keep properties few and parsimonious. Never assert an `Unruled` SWB-R16
+  case. Edit `spec/dhall/approved-broker.dhall` together with
+  `docs/releases/approved-broker.json`.
+
 ## Fork convention and CI
 
 - **Remotes:** `origin` is your private fork and the only push target.
