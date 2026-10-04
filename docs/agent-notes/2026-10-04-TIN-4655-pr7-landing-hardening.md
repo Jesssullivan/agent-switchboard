@@ -62,3 +62,29 @@ was built, pushed to a registry, queued or merged.
   workflow refuses to push, by design.
 - A guard-hook refusal (R-N12) stopped a diff self-scan whose grep pattern
   spelled process-control words; that scan was dropped, not rephrased.
+
+## Correction 2026-10-04: R-C237, R-C238, R-C239 (operator interview, TIN-3692 comment 36c8c12b)
+
+- **R-C237:** the `main-merge-queue` ruleset (23997034) now has one bypass
+  actor, the repository admin role (`RepositoryRole` 5, `always`); the lab
+  seat applied it and the rules are unchanged (read back with `gh api`).
+  ADR-0001, AGENTS.md and `tinyland.repo.json` now say so. The "Open" item
+  above about no bypass actors is resolved: #7 lands by a sting PASS plus an
+  admin merge (R-C228).
+- **R-C238:** `release.yml`, `docs/releases/release-signers.asc`, the
+  `release` devShell, `just release-check-tag` and the `release-check`
+  `--tag`/`--main-ref`/`--built-digest` additions with their 6 tests moved
+  to `feat/tin-4655-release-workflow-20261004`, a separate draft PR stacked
+  on #7 that lands before `v0.1.0`. #7 keeps the `secrets-scan` job that
+  `ci-ok` requires, `.gitleaks.toml` and CODEOWNERS. `release-check.py` and
+  its tests in #7 are back to their pre-hardening bytes (11 tests).
+- **R-C239:** `flake.nix` adds `packages.{x86_64-linux,aarch64-darwin}.swb`
+  (and `default`), built by `rustPlatform.buildRustPackage` with the Rust
+  release `rust-toolchain.toml` pins (1.97.1), taken from the new
+  `oxalica/rust-overlay` input (nixpkgs follows). The devShell still uses
+  nixpkgs rustc 1.95, which is below the workspace `rust-version`, so it
+  could not be reused. `doCheck = false`: Bazel `//:check` stays the test
+  authority. `flake.nix`/`flake.lock` are outside `SOURCE_INPUTS_V1`, so the
+  27 protected inputs are unchanged. Evaluated on neo with `nix eval` only;
+  nothing was built.
+- Sting receipts for the new head are still owed (R-C228).
