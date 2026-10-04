@@ -98,6 +98,13 @@ cover a different image.
   `c4dfd4c8`) keeps SWB-R54 as custody, and the dated correction in
   TIN-4655 comment `cdde44c6` names this release SWB-R55. Its record is
   written under that ID.
+- **SWB-R55 recorded (R-C304).** The operator ratified SWB-R55 (TIN-4655
+  comment `dcb5b687`) at `sha256:c9170c71…`, 4579-byte manifest, from two
+  clean Sting builds of main `d8ebfdbf` with `--embed_label=d8ebfdbf…`.
+  `approved-broker.json` and its Dhall source carry it. `d8ebfdbf` is a
+  GitHub merge commit signed by GitHub's key `B5690EEEBB952194`, so
+  `docs/releases/release-signers.asc` holds that key next to the operator
+  release key `161895136D2E5C29…`.
 
 ## Secrets scan and CODEOWNERS
 

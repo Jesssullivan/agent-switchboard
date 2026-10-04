@@ -44,7 +44,7 @@
     "sbom": {
       "status": "planned",
       "formats": [],
-      "notes": "The broker ships as an OCI image published by digest; the only approved image is the one in docs/releases/approved-broker.json (SWB-R53), and the tag-triggered release workflow lands separately (R-C238). No SBOM format has been chosen; standardize through ci-templates before this moves to recipe-available."
+      "notes": "The broker ships as an OCI image published by digest; the only approved image is the one in docs/releases/approved-broker.json (SWB-R55), and the tag-triggered release workflow lands separately (R-C238). No SBOM format has been chosen; standardize through ci-templates before this moves to recipe-available."
     }
   }
 }
