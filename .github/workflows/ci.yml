@@ -18,6 +18,14 @@ name: CI
 #   --only-verified, then gitleaks with .gitleaks.toml) over the full history
 #   under the same gating, and `ci-ok` requires it too. `just secrets-scan` is
 #   the pre-queue signal for a fork PR.
+# - `spec-dhall` (R-C229 formal spec, R-C255) type-checks spec/dhall and
+#   requires docs/releases/approved-broker.json, the generated broker
+#   constants and the pinned owners.json snapshot to equal their Dhall
+#   renderings. Interpreters only, no compile; same gating, and `ci-ok`
+#   requires it. It reads the tree and writes only a private temp dir, so it
+#   never changes a release-protected input (scripts/release-check.py
+#   SOURCE_INPUTS_V1); the job fails if the checkout is left dirty.
+#   `just spec-dhall` is the pre-queue signal.
 
 on:
   pull_request:
@@ -69,9 +77,37 @@ jobs:
       - name: TruffleHog and gitleaks
         uses: xoxd-ai/ci-templates/.github/actions/secrets-scan@ae836d8400d5784d74af4fecc020f225d1c2d08e # v5.1.1
 
+  spec-dhall:
+    name: spec-dhall
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: tinyland-nix
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Dhall type check and dhall-to-json freshness
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix shell --inputs-from . nixpkgs#dhall nixpkgs#dhall-json nixpkgs#jq \
+            --command bash spec/check-dhall.sh
+      - name: Require an unchanged checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git status --porcelain
+            echo "::error::spec-dhall changed the checkout"
+            exit 1
+          fi
+
   ci-ok:
     name: ci-ok
-    needs: [rust, secrets-scan]
+    needs: [rust, secrets-scan, spec-dhall]
     if: >-
       always()
       && (github.event_name != 'pull_request'
@@ -79,15 +115,16 @@ jobs:
     runs-on: tinyland-nix
     timeout-minutes: 5
     steps:
-      - name: Aggregate the rust-bazel-application lane and secrets scan
+      - name: Aggregate the rust-bazel-application lane, secrets scan and spec-dhall
         shell: bash
         env:
           RUST_RESULT: ${{ needs.rust.result }}
           SECRETS_RESULT: ${{ needs.secrets-scan.result }}
+          SPEC_DHALL_RESULT: ${{ needs.spec-dhall.result }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          echo "event=${EVENT_NAME} rust=${RUST_RESULT} secrets-scan=${SECRETS_RESULT}"
+          echo "event=${EVENT_NAME} rust=${RUST_RESULT} secrets-scan=${SECRETS_RESULT} spec-dhall=${SPEC_DHALL_RESULT}"
           if [[ "${RUST_RESULT}" != "success" ]]; then
             echo "::error::rust-bazel-application lane result is ${RUST_RESULT}"
             exit 1
@@ -96,4 +133,8 @@ jobs:
             echo "::error::secrets-scan result is ${SECRETS_RESULT}"
             exit 1
           fi
-          echo "ci-ok: rust-bazel-application lane and secrets scan passed"
+          if [[ "${SPEC_DHALL_RESULT}" != "success" ]]; then
+            echo "::error::spec-dhall result is ${SPEC_DHALL_RESULT}"
+            exit 1
+          fi
+          echo "ci-ok: rust-bazel-application lane, secrets scan and spec-dhall passed"

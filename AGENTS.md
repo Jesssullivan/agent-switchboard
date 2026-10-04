@@ -69,6 +69,9 @@ When sources disagree, prefer them in this order:
 - `just spec-dhall` runs anywhere, neo included (interpreters only).
   `just spec-quickcheck` and `just spec-check` compile Haskell: run them on
   sting or honey, or `just remote-spec-check` from neo.
+- CI's `spec-dhall` job runs the same Dhall check and `ci-ok` requires it
+  (R-C255). It is skipped on a fork PR like the other jobs, so run
+  `just spec-dhall` before queueing.
 - Keep properties few and parsimonious. Never assert an `Unruled` SWB-R16
   case. Edit `spec/dhall/approved-broker.dhall` together with
   `docs/releases/approved-broker.json`.
