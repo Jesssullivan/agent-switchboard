@@ -1,0 +1,54 @@
+cabal-version: 2.4
+name:          swb-spec
+version:       0.1.0
+synopsis:      Executable model and QuickCheck properties for agent-switchboard (R-C229)
+license:       NONE
+build-type:    Simple
+
+common shared
+  default-language: Haskell2010
+  ghc-options:      -Wall
+  build-depends:
+    , aeson       >=2.0
+    , base        >=4.14 && <5
+    , containers
+
+library
+  import:          shared
+  hs-source-dirs:  src
+  exposed-modules:
+    Swb.Constants
+    Swb.Live
+    Swb.Model
+    Swb.Properties
+  build-depends:
+    , bytestring
+    , http-client
+    , http-types
+    , QuickCheck   >=2.14
+    , random
+    , scientific
+    , text
+    , time
+    , vector
+
+test-suite swb-spec-properties
+  import:         shared
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        Main.hs
+  build-depends:
+    , http-client
+    , QuickCheck  >=2.14
+    , swb-spec
+
+-- The same driver, installed so `nix run .#spec-live` can point it at a
+-- disposable loopback broker.
+executable swb-spec
+  import:         shared
+  hs-source-dirs: test
+  main-is:        Main.hs
+  build-depends:
+    , http-client
+    , QuickCheck  >=2.14
+    , swb-spec

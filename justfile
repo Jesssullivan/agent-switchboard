@@ -111,6 +111,37 @@ image:
     {{clean_bazel_env}} bazelisk build --lockfile_mode=error //deploy:image //deploy:image.digest
     @digest="$(cat bazel-bin/deploy/image.json.sha256)" && printf 'ghcr.io/xoxd-ai/agent-switchboard@%s\n' "$digest"
 
+# R-C229 formal spec. Dhall checks are interpreters only and run on any
+# seat, neo included: `nix shell` substitutes the tools from the locked
+# nixpkgs and compiles nothing. Type-check the Dhall,
+# require approved-broker.json and the generated broker constants to equal
+# their Dhall sources, and round-trip the pinned blahaj owners.json snapshot.
+spec-dhall:
+    nix shell --inputs-from . nixpkgs#dhall nixpkgs#dhall-json nixpkgs#jq --command bash spec/check-dhall.sh
+
+# Round-trip a live blahaj config/rustfs-iam/owners.json through its Dhall type.
+spec-owners owners_json:
+    nix shell --inputs-from . nixpkgs#dhall nixpkgs#dhall-json nixpkgs#jq --command bash spec/check-dhall.sh "$PWD" {{ quote(owners_json) }}
+
+# Build hosts only (sting or honey), never neo: compiles the Haskell model
+# and runs the QuickCheck properties.
+spec-quickcheck:
+    nix build --no-link -L .#swb-spec
+
+# Both spec checks. Build hosts only; from neo use `just remote-spec-check`.
+spec-check: spec-dhall spec-quickcheck
+
+# Build hosts only. Run the properties against a disposable broker that is
+# already listening on loopback (see spec/README.md); refuses other URLs.
+spec-live url="http://127.0.0.1:18080":
+    SWB_SPEC_BROKER_URL={{ quote(url) }} nix run .#spec-live
+
+# Run `just spec-check` on a build host from a teletype seat (neo).
+remote-spec-check host="sting" dir="~/scratch/agent-switchboard-spec":
+    ssh {{host}} 'mkdir -p {{dir}}'
+    rsync -a --delete --exclude '/bazel-*' --exclude '/target/' --exclude '/.git/' --exclude '/spec/haskell/dist-newstyle/' ./ {{host}}:{{dir}}/
+    ssh {{host}} 'cd {{dir}} && just spec-check'
+
 # Stub (P1b): end-to-end round trip against a live broker.
 e2e:
     @echo "e2e: lands with the P1b broker MVP (ADR-0001, phase P1b exit)" >&2

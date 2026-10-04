@@ -1,0 +1,264 @@
+{
+  "schema_id": "tinyland.blahaj.rustfs-bucket-iam.v1",
+  "schema_version": 1,
+  "authority_doc": "docs/architecture/decisions/008-blahaj-in-the-iac-constellation.md",
+  "runbook": "docs/operations/runbooks/rustfs-root-key-retirement.md",
+  "ensure_script": "scripts/ensure-rustfs-bucket-iam.sh",
+  "carrier_sweep_script": "scripts/rustfs-root-key-carriers.sh",
+  "scope": {
+    "statement": "Minimal per-bucket IAM for the RustFS substrate Blahaj already owns in the nix-cache namespace. Buckets themselves are ensured by scripts/ci-ensure-rustfs-bucket.sh; this declaration only describes identities, policies, and their attachment.",
+    "not_a_generalized_primitive": "ADR-008 forbids a cross-store bucket/IAM primitive: 'RustFS is an S3-compatible implementation, not an ownership classification' and the GF cache/RBE contract stop line forbids collapsing state buckets and CAS storage into one abstraction. Nothing here may be reused to provision GF product buckets, spoke managed-state buckets, or any store outside the two listed below.",
+    "field_naming": "Consumer key names are recorded as field_prefix + keys rather than as one joined literal, because the workstation pre-commit credential scanner blocks the joined AWS form. The live Secret key is prefix followed by key.",
+    "credential_handling": "Every secret value is minted and installed by the operator during an attended ceremony. This repo declares identity names, policy documents, and Secret names only. No credential value is ever stored, rendered, printed, or logged."
+  },
+  "namespace": "nix-cache",
+  "stores": {
+    "attic-rustfs-openebs": {
+      "kind": "Deployment",
+      "node": "bumble",
+      "endpoint": "http://attic-rustfs-openebs.nix-cache.svc.cluster.local:9000",
+      "root_credential_secret": "attic-rustfs-credentials",
+      "root_credential_fields": {
+        "access": "RUSTFS_ACCESS_KEY",
+        "secret": "RUSTFS_SECRET_KEY"
+      },
+      "note": "Services attic-rustfs, attic-rustfs-hl, attic-rustfs-openebs, and attic-rustfs-openebs-hl all select the same pod; the attic-rustfs StatefulSet is scaled to 0.",
+      "root_rotation_blockers": [
+        "OBSERVED 2026-08-17: Deployment/tofu-pr-state-rustfs on honey (a MinIO server, not this store) mounts attic-rustfs-credentials as its own MINIO_ROOT_USER / MINIO_ROOT_PASSWORD. Rotating this Secret silently re-roots that server on its next restart. It is listed under out_of_scope_stores for IAM declaration purposes but it is NOT out of scope for Phase 4: the runbook blocks rotation of this Secret until its disposition lands or it is decoupled onto its own root Secret."
+      ]
+    },
+    "tofu-state-rustfs": {
+      "kind": "StatefulSet",
+      "node": "bumble",
+      "endpoint": "http://tofu-state-rustfs.nix-cache.svc.cluster.local:9000",
+      "root_credential_secret": "tofu-state-rustfs-credentials",
+      "root_credential_fields": {
+        "access": "RUSTFS_ACCESS_KEY",
+        "secret": "RUSTFS_SECRET_KEY"
+      },
+      "note": "Separate store, separate keyspace, separate destroy authority (TIN-1012). GFTB and cluster OpenTofu state live here."
+    }
+  },
+  "iam_user_secret_field": "RUSTFS_IAM_SECRET_KEY",
+  "owners": [
+    {
+      "owner": "attic",
+      "store": "attic-rustfs-openebs",
+      "buckets": [
+        "attic"
+      ],
+      "iam_user": "blahaj-attic",
+      "iam_policy": "blahaj-attic-rw",
+      "policy_document": "config/rustfs-iam/policies/blahaj-attic-rw.json",
+      "ceremony_secret": "rustfs-iam-attic",
+      "consumers": [
+        {
+          "workload": "Deployment/attic",
+          "secret": "attic-secrets",
+          "field_prefix": "AWS_",
+          "keys": [
+            "ACCESS_KEY_ID",
+            "SECRET_ACCESS_KEY"
+          ]
+        },
+        {
+          "workload": "Deployment/attic-gc",
+          "secret": "attic-secrets",
+          "field_prefix": "AWS_",
+          "keys": [
+            "ACCESS_KEY_ID",
+            "SECRET_ACCESS_KEY"
+          ]
+        }
+      ],
+      "cutover_order": 3,
+      "blast_radius": "Nix cache reads/writes for every consumer of attic.tinyland.dev until the Secret is rolled back."
+    },
+    {
+      "owner": "bazel-cache",
+      "store": "attic-rustfs-openebs",
+      "buckets": [
+        "bazel-cache"
+      ],
+      "iam_user": "blahaj-bazel-cache",
+      "iam_policy": "blahaj-bazel-cache-rw",
+      "policy_document": "config/rustfs-iam/policies/blahaj-bazel-cache-rw.json",
+      "ceremony_secret": "rustfs-iam-bazel-cache",
+      "consumers": [
+        {
+          "workload": "Deployment/bazel-cache",
+          "secret": "bazel-cache-s3-credentials",
+          "keys": [
+            "access-key",
+            "secret-key"
+          ]
+        }
+      ],
+      "cutover_order": 2,
+      "blast_radius": "Remote cache misses on GF Bazel builds; no durable data loss."
+    },
+    {
+      "owner": "pg-backup",
+      "store": "attic-rustfs-openebs",
+      "buckets": [
+        "pg-backup"
+      ],
+      "iam_user": "blahaj-pg-backup",
+      "iam_policy": "blahaj-pg-backup-rw",
+      "policy_document": "config/rustfs-iam/policies/blahaj-pg-backup-rw.json",
+      "ceremony_secret": "rustfs-iam-pg-backup",
+      "consumers": [
+        {
+          "workload": "ConfigMap/attic-pg-backup-template (PITR recovery template; no running workload)",
+          "secret": "attic-pg-s3-credentials",
+          "keys": [
+            "ACCESS_KEY_ID",
+            "SECRET_ACCESS_KEY"
+          ]
+        }
+      ],
+      "cutover_order": 1,
+      "blast_radius": "No running workload references this Secret, which is why it is the ceremony rehearsal step. But it is not inert: OBSERVED 2026-08-17, a sweep of every namespaced kind (kubectl api-resources --namespaced) finds ConfigMap/attic-pg-backup-template, the CNPG point-in-time-recovery template for attic-pg (barmanObjectStore destinationPath s3://pg-backup/attic-pg/, s3Credentials -> attic-pg-s3-credentials). This is Attic's disaster-recovery credential; a break here is silent until a restore is attempted, so the Phase 3.1 readback must exercise the credential against the pg-backup bucket rather than only observing that nothing restarted.",
+      "consumer_probe_note": "kubectl get all -A cannot see CustomResources and is not sufficient evidence of zero consumers. The sweep must enumerate every namespaced kind: kubectl api-resources --namespaced --verbs=list -o name."
+    },
+    {
+      "owner": "tofu-state",
+      "store": "tofu-state-rustfs",
+      "buckets": [
+        "tofu-state"
+      ],
+      "iam_user": "blahaj-tofu-state",
+      "iam_policy": "blahaj-tofu-state-rw",
+      "policy_document": "config/rustfs-iam/policies/blahaj-tofu-state-rw.json",
+      "ceremony_secret": "rustfs-iam-tofu-state",
+      "consumers": [
+        {
+          "workload": "scripts/ci-ensure-rustfs-bucket.sh",
+          "secret": "attic-rustfs-credentials",
+          "keys": [
+            "RUSTFS_ACCESS_KEY",
+            "RUSTFS_SECRET_KEY"
+          ]
+        },
+        {
+          "workload": "CronJob/tofu-state-rustfs-backup",
+          "secret": "attic-rustfs-credentials",
+          "keys": [
+            "RUSTFS_ACCESS_KEY",
+            "RUSTFS_SECRET_KEY"
+          ]
+        },
+        {
+          "workload": "github-repo-secret/RUSTFS_ACCESS_KEY+RUSTFS_SECRET_KEY",
+          "secret": "tinyland-inc/blahaj, tinyland-inc/GloriousFlywheel, tinyland-inc/tinyland-infra",
+          "keys": [
+            "RUSTFS_ACCESS_KEY",
+            "RUSTFS_SECRET_KEY"
+          ]
+        },
+        {
+          "workload": "scripts/lib/tofu-backend.sh tofu_load_rustfs_backend_secrets (every local `just tofu-plan` / `just tofu-apply`)",
+          "secret": "sops:secrets/opentofu-backend.enc.yaml",
+          "keys": [
+            "default.rustfs_access_key",
+            "default.rustfs_secret_key"
+          ],
+          "note": "OBSERVED scripts/lib/tofu-backend.sh:443 reads these two sops fields and exports them as the AWS credential pair for every RustFS-backed state operation. It must be cut over inside the Phase 3.4 window with the other three carriers; leaving it for after Phase 4 would break every local OpenTofu entrypoint for the length of that gap. Editing it is a sops-authorized secret-bearing step, so an operator who can decrypt this file must be present for Phase 3.4."
+        }
+      ],
+      "cutover_order": 4,
+      "blast_radius": "OpenTofu plan/apply in three repositories, every local `just tofu-*` entrypoint, plus the nightly state mirror; cut over last and with a rollback window."
+    },
+    {
+      "owner": "agent-switchboard-tofu-state",
+      "store": "tofu-state-rustfs",
+      "buckets": [
+        "agent-switchboard-tofu-state"
+      ],
+      "iam_user": "blahaj-agent-switchboard-tofu-state",
+      "iam_policy": "blahaj-agent-switchboard-tofu-state-rw",
+      "policy_document": "config/rustfs-iam/policies/blahaj-agent-switchboard-tofu-state-rw.json",
+      "ceremony_secret": "rustfs-iam-agent-switchboard-tofu-state",
+      "consumers": [
+        {
+          "workload": "future agent-switchboard OpenTofu backend; still refused by scripts/lib/tofu-backend.sh (SWB-R51) until a separate reviewed loader release",
+          "secret": "proposed separate sops:secrets/opentofu-backend.enc.yaml entry",
+          "keys": [
+            "agent_switchboard.rustfs_access_key",
+            "agent_switchboard.rustfs_secret_key"
+          ],
+          "note": "No credential is issued by this declaration. Never read the default OpenTofu state credential for this owner."
+        }
+      ],
+      "blast_radius": "The single agent-switchboard cluster stack's OpenTofu state and lock. No access to the default tofu-state bucket.",
+      "status": "commissioning under R-C196 (TIN-5105, operator-attended on honey); bucket, IAM identity, encrypted carrier, retention, backup and restore are proved only by the dated TIN-5105 receipts",
+      "object_keys": {
+        "agent-switchboard-tofu-state": [
+          "blahaj/agent-switchboard/terraform.tfstate",
+          "blahaj/agent-switchboard/terraform.tfstate.tflock"
+        ]
+      }
+    },
+    {
+      "owner": "tinyland-dev-observability",
+      "store": "attic-rustfs-openebs",
+      "buckets": [
+        "tinyland-dev-observability"
+      ],
+      "iam_user": "blahaj-tinyland-dev-observability",
+      "iam_policy": "blahaj-tinyland-dev-observability-rw",
+      "policy_document": "config/rustfs-iam/policies/blahaj-tinyland-dev-observability-rw.json",
+      "ceremony_secret": "rustfs-iam-tinyland-dev-observability",
+      "consumers": [
+        {
+          "workload": "Deployment/loki|mimir|tempo|pyroscope (ns tinyland-staging, owner repo tinyland-inc/tinyland.dev)",
+          "secret": "tinyland-observability-rustfs",
+          "keys": [
+            "access-key-id",
+            "secret-access-key"
+          ]
+        }
+      ],
+      "cutover_order": 5,
+      "blast_radius": "all four canonical LGTM signal backends lose durable storage; ingest fails closed"
+    }
+  ],
+  "unmanaged_buckets": [
+    {
+      "bucket": "gf-rbe-cas",
+      "store": "attic-rustfs-openebs",
+      "reason": "Provisioned out-of-band 2026-07-29 with IAM user gf-reapi-cell under contract tin-2221-v1 (ConfigMap gf-rbe-cas-provisioning-lock). Disposition is owned by the declare-or-remove lane, not by this declaration.",
+      "owner_repo": "tinyland-inc/GloriousFlywheel"
+    },
+    {
+      "bucket": "was110-public-inputs",
+      "store": "attic-rustfs-openebs",
+      "reason": "Foreign spoke bucket (8311-was-110-firmware-builder) with no Blahaj carrier; pending owner ping receipt.",
+      "owner_repo": "unconfirmed"
+    },
+    {
+      "bucket": "tofu-state",
+      "store": "attic-rustfs-openebs",
+      "reason": "Stale migration residue on the attic store. The live OpenTofu state bucket is the same-named bucket on the tofu-state-rustfs store; this one must not be granted to any owner.",
+      "owner_repo": "tinyland-inc/blahaj"
+    }
+  ],
+  "out_of_scope_stores": [
+    {
+      "store": "tofu-pr-state-rustfs",
+      "node": "honey",
+      "reason": "Live-only Deployment on a floating chainguard tag (cgr.dev/chainguard/minio:latest); its existence is a pending decision issue, so it gets no IAM declaration until that decision lands.",
+      "out_of_scope_for": "IAM declaration only",
+      "in_scope_for": "Phase 4 root rotation blocking",
+      "root_credential_coupling": {
+        "secret": "attic-rustfs-credentials",
+        "fields": {
+          "MINIO_ROOT_USER": "RUSTFS_ACCESS_KEY",
+          "MINIO_ROOT_PASSWORD": "RUSTFS_SECRET_KEY"
+        },
+        "observed": "2026-08-17, kubectl -n nix-cache get deploy tofu-pr-state-rustfs -o json",
+        "hazard": "This server is MinIO, the implementation the runbook's Hazard Gate names as historically encrypting its IAM store with the root credential. Rotating attic-rustfs-credentials in Phase 4 re-roots it on its next restart, with no restart, verify, or rollback step of its own. The runbook therefore blocks the attic-store rotation until this store is decoupled onto its own root Secret or its disposition lands."
+      }
+    }
+  ]
+}

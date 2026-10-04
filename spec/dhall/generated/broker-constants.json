@@ -1,0 +1,40 @@
+{
+  "claim": {
+    "lease_default_hours": 4,
+    "lease_max_hours": 24
+  },
+  "message": {
+    "artifacts_max": 20,
+    "body_max_bytes": 16384,
+    "inbox_default_limit": 20,
+    "inbox_max_limit": 100,
+    "retention_acked_seconds": 604800,
+    "retention_unacked_seconds": 2592000,
+    "ttl_default_hours": 72,
+    "ttl_max_hours": 336,
+    "ttl_min_hours": 1
+  },
+  "rulings": [
+    "SWB-R09",
+    "SWB-R14",
+    "SWB-R16",
+    "SWB-R46",
+    "R-C229"
+  ],
+  "session": {
+    "idle_max_age_seconds": 21600,
+    "lease_seconds": 900,
+    "live_max_age_seconds": 900,
+    "states": [
+      "live",
+      "idle",
+      "gone",
+      "ended"
+    ]
+  },
+  "unruled": [
+    "exclusive_request_while_nonexclusive_claims_exist",
+    "nonexclusive_claim_lists_exclusive_holder_in_overlaps",
+    "exclusive_reclaim_by_the_current_exclusive_holder"
+  ]
+}
