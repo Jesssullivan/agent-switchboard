@@ -24,7 +24,7 @@ import Data.List (sort)
 import qualified Data.Map.Strict as M
 import Swb.Constants
 import Swb.Model
-import Test.QuickCheck
+import Test.QuickCheck hiding (classify)
 
 -- | The live broker has no clock seam and no claims yet, so the live mode
 -- generates neither 'Tick' nor claim operations.
