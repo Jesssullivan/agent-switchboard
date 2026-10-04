@@ -6,7 +6,9 @@ Supplied registry bytes are evidence from the caller, not a fresh pull proof.
 With --tag the check also binds a signed annotated release tag to HEAD (and,
 with --main-ref, to the protected main history); with --built-digest it refuses
 any locally built image whose digest is not the approved immutable digest, so
-the release workflow can never publish an image SWB-R53 did not approve.
+the release workflow can never publish an image SWB-R55 did not approve.
+With --tag-signer the tag must also be signed by that primary key: the release
+key ring carries GitHub's merge key for the source commit, never for tags.
 """
 import argparse
 import hashlib
@@ -73,7 +75,18 @@ def check_layout(layout, release):
 TAG_NAME = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?")
 
 
-def check_tag(repo, tag, main_ref=None):
+def tag_signer(repo, ref):
+    """Primary-key fingerprint of a verified tag signature (VALIDSIG field 10)."""
+    status = subprocess.run(["git", "-C", str(repo), "verify-tag", "--raw", ref],
+                            capture_output=True, text=True, check=True).stderr
+    for line in status.splitlines():
+        fields = line.split()
+        if fields[:2] == ["[GNUPG:]", "VALIDSIG"] and len(fields) >= 12:
+            return fields[11].upper()
+    raise ValueError("release tag signature has no VALIDSIG status")
+
+
+def check_tag(repo, tag, main_ref=None, signer=None):
     if not TAG_NAME.fullmatch(tag):
         raise ValueError("release tag name must be vMAJOR.MINOR.PATCH[-pre]")
     ref = "refs/tags/" + tag
@@ -84,6 +97,13 @@ def check_tag(repo, tag, main_ref=None):
         git(repo, "verify-tag", ref)
     except subprocess.CalledProcessError:
         raise ValueError("release tag signature does not verify against the trusted key ring") from None
+    if signer:
+        try:
+            primary = tag_signer(repo, ref)
+        except subprocess.CalledProcessError:
+            raise ValueError("release tag signature does not verify against the trusted key ring") from None
+        if primary != signer.upper():
+            raise ValueError("release tag is not signed by the pinned release key")
     commit = git(repo, "rev-parse", ref + "^{commit}")
     if commit != git(repo, "rev-parse", "HEAD"):
         raise ValueError("release tag does not point at the checked-out HEAD")
@@ -148,17 +168,18 @@ def main():
     parser.add_argument("--registry-manifest", type=Path)
     parser.add_argument("--tag", help="signed annotated release tag that must point at HEAD")
     parser.add_argument("--main-ref", help="ref whose history must contain the tag commit (requires --tag)")
+    parser.add_argument("--tag-signer", help="primary key fingerprint that must have signed --tag")
     parser.add_argument("--built-digest", type=Path, help="Bazel //deploy:image.digest output to compare")
     args = parser.parse_args()
-    if args.main_ref and not args.tag:
-        parser.error("--main-ref requires --tag")
+    if (args.main_ref or args.tag_signer) and not args.tag:
+        parser.error("--main-ref and --tag-signer require --tag")
     repo = Path(__file__).resolve().parents[1]
     report = {"rulings": ["SWB-R55", "SWB-R49", "R-N13"], "live_acceptance": False, "fresh_registry_pull": False, "publication_authorized": False}
     try:
         release = json.loads((repo / "docs/releases/approved-broker.json").read_text())
         report.update(check_source(repo, release), image=release["image"])
         if args.tag:
-            report.update(check_tag(repo, args.tag, args.main_ref))
+            report.update(check_tag(repo, args.tag, args.main_ref, args.tag_signer))
         if args.built_digest:
             report["built_digest_matches"] = check_built_digest(args.built_digest, release)
         if args.oci_layout:

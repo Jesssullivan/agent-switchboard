@@ -121,10 +121,14 @@ cover a different image.
   on no `merge_group` result (R-C228). It lands in its own PR before
   `v0.1.0` (R-C238). Fail-closed order:
   1. import `docs/releases/release-signers.asc` into an empty key ring and
-     require exactly the pinned primary fingerprint;
-  2. `release-check --tag TAG --main-ref origin/main`: the tag is annotated,
-     its signature verifies, it points at the checked-out commit and that
-     commit is on main; the signed source and all 27 protected inputs match;
+     require exactly the two pinned primaries: the operator release key and
+     GitHub's merge key `B5690EEEBB952194` (the SWB-R55 source signer);
+  2. `release-check --tag TAG --tag-signer <operator key> --main-ref
+     origin/main`: the tag is annotated, signed by the operator release key
+     (GitHub's key never satisfies this), points at the checked-out commit and
+     that commit is on main; the signed source and all 27 protected inputs
+     match. The approved `source` is then read once from
+     `approved-broker.json` and checked to be an ancestor of HEAD;
   3. build `//deploy:image.digest` and `release-check --built-digest`: refuse
      to push unless it equals the approved immutable digest. The build runs
      in the `release` devShell, which is `mkShellNoCC` (R-C282): `mkShell`
@@ -132,17 +136,18 @@ cover a different image.
      compile libsqlite3-sys with it, and the binary would carry `/nix/store`
      paths and a Nix dynamic linker, so the digest could never reproduce
      (R-C268). The step also refuses if `CC`, `CXX` or `NIX_CC` is set or
-     `cc`/`gcc` resolves into `/nix/store`, and passes the tagged commit as
-     `--embed_label` so the revision label matches the approved build;
-  4. `bazelisk run //deploy:push` (digest only, `packages: write` token);
+     `cc`/`gcc` resolves into `/nix/store`, and passes the approved `source`
+     as `--embed_label` so the revision label matches the approved build;
+  4. `bazelisk run //deploy:push` (digest only, `packages: write` token),
+     with the same approved `source` as `--embed_label`;
   5. read the manifest back from ghcr.io by digest, verify digest and byte
      size with `release-check --registry-manifest`, and keep the report,
      manifest bytes and built digest as the `release-evidence-TAG` artifact.
 - `just release-check-tag TAG [MAIN_REF]` runs the step 2 gate locally.
 - The workflow writes evidence only. `publication_authorized` and
   `live_acceptance` stay false; it never edits `approved-broker.json`. Today
-  the only image it can push is the SWB-R53 digest, and only if the tagged
-  tree's Bazel build reproduces it. Publishing any other image needs a new
+  the only image it can push is the SWB-R55 digest `sha256:c9170c71…`, and
+  only if the tagged tree's Bazel build reproduces it. Publishing any other image needs a new
   ruling and a new approved release entry first.
 - Before the first tag: the `ghcr.io/xoxd-ai/agent-switchboard` package must
   grant this repository's Actions write access, and the tinyland-nix runner

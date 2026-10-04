@@ -1,17 +1,23 @@
 name: release
 
-# Tag-triggered broker publication (TIN-4655; SWB-R53, R-N13, R-C228).
+# Tag-triggered broker publication (TIN-4655; SWB-R55, R-C304, R-N13, R-C228).
 #
 # Runs only for a signed annotated tag vMAJOR.MINOR.PATCH[-pre] pushed to
 # xoxd-ai/agent-switchboard. It never runs on pull_request or merge_group and
 # depends on no merge_group result. The order is fail-closed:
 #
-#   1. `release-check --tag --main-ref origin/main` proves the tag is signed by
-#      the pinned release key, points at the checked-out commit, sits on main,
-#      and that all protected build/runtime inputs equal the approved signed
-#      source in docs/releases/approved-broker.json.
+#   1. `release-check --tag --tag-signer --main-ref origin/main` proves the tag
+#      is signed by the pinned operator release key, points at the checked-out
+#      commit, sits on main, and that all protected build/runtime inputs equal
+#      the approved signed source in docs/releases/approved-broker.json. The
+#      key ring also holds GitHub's merge key, because the SWB-R55 source is a
+#      GitHub merge commit (R-C304); it never satisfies the tag pin.
+#   1a. The approved `source` is read once from approved-broker.json, checked
+#      to be a 40-hex ancestor of HEAD, and used as --embed_label for both the
+#      build and the push (TIN-4655 comment 3126a35f): the tag may sit on a
+#      later commit, and labelling that commit would change the digest.
 #   2. Bazel builds //deploy:image.digest with the host C toolchain (the
-#      release devShell is mkShellNoCC; R-C282) and the tagged commit as
+#      release devShell is mkShellNoCC; R-C282) and the approved source as
 #      --embed_label (R-C268), and `release-check --built-digest`
 #      refuses unless it equals the approved immutable digest. A different
 #      image is a new publication that needs its own ruling, so nothing is
@@ -36,9 +42,12 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Primary fingerprint of docs/releases/release-signers.asc. The imported
-  # key ring must contain exactly this primary key.
+  # Primary fingerprints of docs/releases/release-signers.asc. The imported
+  # key ring must contain exactly these two primary keys: the operator release
+  # key, which alone may sign release tags, and GitHub's merge key
+  # (B5690EEEBB952194), which signed the SWB-R55 source commit (R-C304).
   RELEASE_SIGNER_FPR: 161895136D2E5C292D2A663D0B01977B8DD5DA60
+  GITHUB_MERGE_FPR: 968479A1AFF927E37D1A566BB5690EEEBB952194
   IMAGE_REPOSITORY: ghcr.io/xoxd-ai/agent-switchboard
   BAZEL_PLATFORM: //platforms:x86_64-unknown-linux-gnu
 
@@ -89,8 +98,9 @@ jobs:
           install -d -m 0700 "$GNUPGHOME"
           gpg --batch --import docs/releases/release-signers.asc
           primaries="$(gpg --batch --with-colons --fingerprint | awk -F: '$1=="pub"{p=1;next} p&&$1=="fpr"{print $10;p=0}')"
-          if [[ "$primaries" != "$RELEASE_SIGNER_FPR" ]]; then
-            echo "::error::release signer key ring is not exactly ${RELEASE_SIGNER_FPR}"
+          expected="$(printf '%s\n' "$RELEASE_SIGNER_FPR" "$GITHUB_MERGE_FPR" | sort)"
+          if [[ "$(sort <<<"$primaries")" != "$expected" ]]; then
+            echo "::error::release signer key ring is not exactly ${RELEASE_SIGNER_FPR} and ${GITHUB_MERGE_FPR}"
             exit 1
           fi
           echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
@@ -99,12 +109,27 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          python3 scripts/release-check.py --tag "$TAG" --main-ref origin/main
+          python3 scripts/release-check.py --tag "$TAG" --tag-signer "$RELEASE_SIGNER_FPR" --main-ref origin/main
+
+      - name: Read the approved source once
+        id: approved
+        run: |
+          # TIN-4655 comment 3126a35f: the revision label, and so the digest,
+          # is the approved source, never the tag or HEAD. Read it once here,
+          # after the gate, and pass this one value to both build and push.
+          approved="$(jq -er .source docs/releases/approved-broker.json)"
+          if [[ ! "$approved" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::approved-broker.json source is not a 40-hex sha"
+            exit 1
+          fi
+          git merge-base --is-ancestor "$approved" HEAD
+          echo "source=$approved" >> "$GITHUB_OUTPUT"
 
       - name: Build the image digest and refuse anything unapproved
         env:
           TAG: ${{ github.ref_name }}
           BAZELISK: ${{ steps.bazelisk.outputs.path }}
+          APPROVED_SOURCE: ${{ steps.approved.outputs.source }}
         run: |
           # R-C282: Bazel must use the host C toolchain, never a Nix
           # gcc-wrapper. The release devShell is mkShellNoCC; refuse here if a
@@ -123,18 +148,18 @@ jobs:
             fi
           done
           # R-C268: the image's org.opencontainers.image.revision label is the
-          # tagged commit, exactly as the approved double-build stamped it.
-          revision="$(git rev-parse 'HEAD^{commit}')"
+          # approved source, exactly as the approved double-build stamped it.
           "$BAZELISK" --ignore_all_rc_files build --lockfile_mode=error \
             --platforms="$BAZEL_PLATFORM" --remote_executor= --remote_cache= \
-            --embed_label="$revision" \
+            --embed_label="$APPROVED_SOURCE" \
             //deploy:image //deploy:image.digest
-          python3 scripts/release-check.py --tag "$TAG" --main-ref origin/main \
+          python3 scripts/release-check.py --tag "$TAG" --tag-signer "$RELEASE_SIGNER_FPR" --main-ref origin/main \
             --built-digest bazel-bin/deploy/image.json.sha256
 
       - name: Push the approved image by digest
         env:
           BAZELISK: ${{ steps.bazelisk.outputs.path }}
+          APPROVED_SOURCE: ${{ steps.approved.outputs.source }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           export DOCKER_CONFIG="$RUNNER_TEMP/docker-config"
@@ -145,7 +170,7 @@ jobs:
             jq -n --arg auth "$auth" '{auths: {"ghcr.io": {auth: $auth}}}' > "$DOCKER_CONFIG/config.json" )
           "$BAZELISK" --ignore_all_rc_files run --lockfile_mode=error \
             --platforms="$BAZEL_PLATFORM" --remote_executor= --remote_cache= \
-            --embed_label="$(git rev-parse 'HEAD^{commit}')" \
+            --embed_label="$APPROVED_SOURCE" \
             //deploy:push
 
       - name: Read the manifest back from the registry and verify it
@@ -167,7 +192,7 @@ jobs:
             -H "Accept: application/vnd.oci.image.manifest.v1+json" \
             "https://ghcr.io/v2/${repo_path}/manifests/${digest}" \
             --output "$evidence/registry-manifest.json"
-          python3 scripts/release-check.py --tag "$TAG" --main-ref origin/main \
+          python3 scripts/release-check.py --tag "$TAG" --tag-signer "$RELEASE_SIGNER_FPR" --main-ref origin/main \
             --built-digest bazel-bin/deploy/image.json.sha256 \
             --registry-manifest "$evidence/registry-manifest.json" \
             | tee "$evidence/release-check.json"

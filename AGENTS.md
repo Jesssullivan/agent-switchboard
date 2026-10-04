@@ -104,7 +104,7 @@ When sources disagree, prefer them in this order:
   secrets-scan` before queueing.
 - **Release:** `.github/workflows/release.yml` runs only on a signed annotated
   `v*` tag on main. It pushes only the approved immutable digest from
-  `docs/releases/approved-broker.json` (SWB-R53) and verifies the registry
+  `docs/releases/approved-broker.json` (SWB-R55) and verifies the registry
   readback; a different image needs its own ruling first.
 - **SWB-R49 local integration while GF is in development:** use
   `just local-integrate` with exact reviewed `PR@FULL_SHA` inputs to assemble
