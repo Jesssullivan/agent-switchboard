@@ -100,7 +100,7 @@ counter for acks or expiries.
   14 days maximum, SWB-R09).
 - **Why it must be 0:** delivery is at-least-once with receiver-side dedupe
   (ADR-0001 → Mailbox). Duplicates are allowed; loss is not. This indicator
-  is a count, not a ratio, and its design value is 0 in every window. How a
+  is a count, not a ratio, and R-C263 rules that it must be 0. How a
   non-zero count is handled is for the targets interview.
 - **Not loss:** a TTL expiry (counted, reported beside the SLI, and a
   delivery problem rather than a durability one); a send that failed or timed
