@@ -22,7 +22,8 @@ contractual remedy attaches to any indicator.
   next). Fixture runs, local integration trees and loopback `spec-live` runs
   are development evidence, not SLI data.
 - Measurement starts at the first scrape after the P1b functional exits pass.
-  The targets interview needs at least one full window of that data.
+  R-C263 sets no minimum amount of data. The targets interview decides
+  whether it has enough.
 - Hooks are non-blocking by design (SWB-R10: 2 s timeout, always exit 0) and
   fall back to the degraded-mode ladder in ADR-0001. A hook that times out
   never received an accepted send, so it is not a lost message; it shows up
@@ -30,7 +31,8 @@ contractual remedy attaches to any indicator.
 
 ## Measurement window
 
-- **Reporting window:** rolling 28 days, evaluated on the Mimir copy of the
+- **Reporting window:** rolling 28 days. This is a proposed default, not
+  a ruled value, and the targets interview may change it. It is evaluated on the Mimir copy of the
   `swb_*` series that the single static scrape job writes (ADR-0001 →
   LGTM → Scrape).
 - **Diagnostic windows:** 1 h and 24 h, for dashboards and investigation
@@ -114,6 +116,12 @@ counter for acks or expiries.
   Unacked bodies are pruned at 30 days, after the 14 day maximum TTL, so
   every accepted message reaches `acked` or `expired` before its row can
   disappear.
+
+  `unacked_current` here counts every stored row that is neither `acked`
+  nor already counted in `expired_total`, with no TTL filter. It is not
+  today's `swb_mailbox_unacked`, which drops a row as soon as its TTL
+  passes. With that gauge in the identity, a message past its TTL but not
+  yet counted as expired would read as lost until the next expiry pass.
 - **Measured today:** only the first and last terms exist
   (`swb_messages_total`, `swb_mailbox_unacked`). Expiry is only written to
   the row during an `inbox` pass, while the gauge filters on `expires_at`,
@@ -170,8 +178,10 @@ The lease is 900 s (`register` returns `lease_seconds: 900`). A session
 reads `live` while `last_seen` is within 900 s, `idle` up to 6 h, then
 `gone`. `last_seen` is renewed by `register`, `peers` with `me`, `send`
 (sender), `inbox` and `ack`, and by the Claude/Kimi hooks through those
-calls. The broker stamps it from SQLite `unixepoch()`, a single clock, so
-host clock skew does not enter.
+calls. At `08de158` the broker stamps it from SQLite `unixepoch()`. The R-C262
+clock seam replaces that with an injected clock that reads the same host
+time. Either way the broker uses one clock, so clock skew between hosts
+does not enter.
 
 Two failure directions, measured separately:
 
@@ -231,4 +241,4 @@ approved image (R-C262 and the SWB-R53 boundary in
       drive expiry, idle and gone (SLI 2 and SLI 4 tests).
 - [ ] Grafana annotations for owner-admitted restarts and commissioning
       windows (measurement window).
-- [ ] Targets interview after one full 28-day window of live data (R-C263).
+- [ ] Targets interview once there is live data (R-C263).
