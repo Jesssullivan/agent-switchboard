@@ -14,6 +14,10 @@ name: CI
 #   reports the skipped required `ci-ok` as passing. The full lane then runs
 #   on the merge_group event, where `ci-ok` must pass for the PR to land.
 #   `just check` (on sting or honey, never neo) is the pre-queue signal.
+# - `secrets-scan` runs the xoxd-ai/ci-templates secrets-scan action (TruffleHog
+#   --only-verified, then gitleaks with .gitleaks.toml) over the full history
+#   under the same gating, and `ci-ok` requires it too. `just secrets-scan` is
+#   the pre-queue signal for a fork PR.
 
 on:
   pull_request:
@@ -49,9 +53,25 @@ jobs:
       timeout_minutes: 60
       max_parallel: 1
 
+  secrets-scan:
+    name: secrets-scan
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: tinyland-nix
+    timeout-minutes: 15
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: TruffleHog and gitleaks
+        uses: xoxd-ai/ci-templates/.github/actions/secrets-scan@ae836d8400d5784d74af4fecc020f225d1c2d08e # v5.1.1
+
   ci-ok:
     name: ci-ok
-    needs: [rust]
+    needs: [rust, secrets-scan]
     if: >-
       always()
       && (github.event_name != 'pull_request'
@@ -59,16 +79,21 @@ jobs:
     runs-on: tinyland-nix
     timeout-minutes: 5
     steps:
-      - name: Aggregate the rust-bazel-application lane
+      - name: Aggregate the rust-bazel-application lane and secrets scan
         shell: bash
         env:
           RUST_RESULT: ${{ needs.rust.result }}
+          SECRETS_RESULT: ${{ needs.secrets-scan.result }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          echo "event=${EVENT_NAME} rust=${RUST_RESULT}"
+          echo "event=${EVENT_NAME} rust=${RUST_RESULT} secrets-scan=${SECRETS_RESULT}"
           if [[ "${RUST_RESULT}" != "success" ]]; then
             echo "::error::rust-bazel-application lane result is ${RUST_RESULT}"
             exit 1
           fi
-          echo "ci-ok: rust-bazel-application lane passed"
+          if [[ "${SECRETS_RESULT}" != "success" ]]; then
+            echo "::error::secrets-scan result is ${SECRETS_RESULT}"
+            exit 1
+          fi
+          echo "ci-ok: rust-bazel-application lane and secrets scan passed"

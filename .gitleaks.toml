@@ -1,0 +1,8 @@
+# Gitleaks configuration (TIN-4655). The default rule set applies unchanged.
+# CI runs it through xoxd-ai/ci-templates .github/actions/secrets-scan (with
+# TruffleHog --only-verified) on merge_group and push; `just secrets-scan`
+# runs the same gitleaks scan on a build host or seat before queueing.
+# Add allowlist entries only for a reviewed false positive, never a secret.
+
+[extend]
+useDefault = true
