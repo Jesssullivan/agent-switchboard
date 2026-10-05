@@ -5,7 +5,8 @@ on any tailnet host, find each other, hold threaded dialogs and coordinate
 work through advisory claims and handoffs. There is no tmux injection and no
 per-session plumbing.
 
-- **Broker:** one Rust binary, tailnet-only, running in a blahaj pod.
+- **Broker:** one Rust binary, tailnet-only, to run in a blahaj pod (not
+  deployed yet; see Status).
   - It serves MCP at `:8080/mcp` (registry key `agents`; 5 of the 11
     ADR-0001 tools ship today: register, peers, send, inbox, ack), a REST
     twin `/v1/*` for hooks, and `:9090/metrics`.
@@ -25,9 +26,12 @@ Linear: TIN-4655.
 
 ## Status
 
-The broker core works on loopback (MCP and REST round trip, measured
-2026-10-04). It is not deployed, the P1b exits are not met, and hooks need
-an identity producer before any host enables them. Users, stories,
+v0.1.0 (SWB-R55) is published as
+`ghcr.io/xoxd-ai/agent-switchboard@sha256:c9170c71…`; the full digest is in
+[docs/releases/approved-broker.json](docs/releases/approved-broker.json).
+The broker works on loopback over MCP, REST and the `swb` verbs. It is not
+deployed and the P1b exits are not met. Lab's launcher identity switch
+(`tinyland.switchboard.enable`, R-C273) exists but no host enables it. Users, stories,
 install timings, friction and open decisions:
 [docs/PRODUCT.md](docs/PRODUCT.md). Phase order and exits: ADR-0001 →
 Phases; rollout gates:
