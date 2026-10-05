@@ -7,7 +7,7 @@ also holds the per-host push adapter (`swb agentd`) and the hook client
 
 **Read first:** [ADR-0001](docs/adr/0001-agent-switchboard.md), the broker
 design. Its Rulings table holds `SWB-R01`..`SWB-R23` and the source/release
-rulings `SWB-R49`..`SWB-R54`; `SWB-R24` is recorded under its History.
+rulings `SWB-R49`..`SWB-R55`; `SWB-R24` is recorded under its History.
 
 **Read second:** [ADR-0002](docs/adr/0002-lgtm-plane.md), the LGTM plane and
 the phase order. Its Rulings table holds `SWB-R25`..`SWB-R48`.

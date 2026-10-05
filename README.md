@@ -66,10 +66,12 @@ just lock              # regenerate all three lock files together (linux x86_64)
 
 Never build on neo; use `just remote-check` there. Fork convention, signed
 commits, CI and how a PR lands: [AGENTS.md](AGENTS.md) → "Fork convention
-and CI". PR CI builds the image and digest but never publishes; publication
-is the explicit `bazelisk run //deploy:push` target on a reviewed main build,
-by digest with no mutable tag. Release lock and rollout gates (including the
-tailnet `SWB_MCP_ALLOWED_HOSTS` and a PVC writable by UID 65532):
+and CI". PR CI builds the image and digest but never publishes. Publication
+is the signed-tag release workflow (`.github/workflows/release.yml`), which
+pushes only the approved digest in `docs/releases/approved-broker.json`, by
+digest with no mutable tag; v0.1.0 (SWB-R55) was pushed by hand under R-C312.
+Release lock and rollout gates (including the tailnet
+`SWB_MCP_ALLOWED_HOSTS` and a PVC writable by UID 65532):
 [docs/operations/PRODUCTIONIZATION.md](docs/operations/PRODUCTIONIZATION.md).
 
 ## Run locally
@@ -94,19 +96,18 @@ echo '{"session_id":"sess-a"}' | SWB_SESSION_PID=40001 "$swb" hook claude Sessio
 echo '{"session_id":"sess-b"}' | SWB_SESSION_PID=40002 "$swb" hook codex SessionStart
 a="claude:$SWB_HOST:40001:sess-a" b="codex:$SWB_HOST:40002:sess-b"
 
-# There is no `swb send` or `swb ack` yet: use REST (or MCP at /mcp).
-curl -s "$SWB_BROKER_URL/v1/peers"
-curl -s -H 'content-type: application/json' "$SWB_BROKER_URL/v1/send" \
-  -d "{\"from\":\"$a\",\"to\":\"$b\",\"ticket\":\"none\",\"body\":\"hello\"}"
-SWB_AGENT_ID="$b" "$swb" inbox          # note the msg_id
-curl -s -H 'content-type: application/json' "$SWB_BROKER_URL/v1/ack" \
-  -d "{\"me\":\"$b\",\"msg_id\":\"<msg_id>\"}"
+SWB_SESSION_PID=40001 SWB_AGENT_ID="$a" "$swb" doctor  # ok/skip lines; exit 3 on FAIL
+"$swb" peers
+echo hello | SWB_AGENT_ID="$a" "$swb" send "$b" none   # body on stdin
+SWB_AGENT_ID="$b" "$swb" inbox          # one message per call; note its msg_id
+SWB_AGENT_ID="$b" "$swb" ack <msg_id>
 ```
 
 `swb hook` always exits 0 and prints nothing when a setting is missing
-(SWB-R10), so a silent hook can mean "not wired" as well as "no mail". Use
-`swb whoami` or `swb inbox`, which fail with exit 3 and name the missing
-setting.
+(SWB-R10), so a silent hook can mean "not wired" as well as "no mail". Run
+`swb doctor` (add `--register` for a live register round trip): it prints one
+`ok`, `skip` or `FAIL` line per check, with a fix for each failure, and exits
+3 if any check fails.
 
 ### Settings
 
@@ -116,16 +117,24 @@ setting.
 | `SWB_LISTEN` | `serve` | `0.0.0.0:8080` | MCP `/mcp` and REST `/v1/*` |
 | `SWB_METRICS_LISTEN` | `serve` | `0.0.0.0:9090` | `/metrics` |
 | `SWB_MCP_ALLOWED_HOSTS` | `serve` | `localhost,127.0.0.1,::1` | comma-separated `Host` allowlist for `/mcp`; a deployment sets its tailnet name |
-| `SWB_BROKER_URL` | `hook`, `whoami`, `inbox` | none | `http://host:port` only: no path, no trailing `/`, no `https` |
-| `SWB_HOST` | `hook`, `whoami` | none | host part of the agent id |
-| `SWB_SESSION_PID` | `hook`, `whoami` | none | nonzero integer |
-| `SWB_PROC_START` | `hook`, `whoami` | none | also the check on `/v1/end` |
-| `SWB_HARNESS` | `hook`, `whoami` | hook: its argument | `claude`, `kimi`, `codex`, `junie`, `opencode` or `pi` |
-| `SWB_SESSION_ID` | `whoami` | none | hooks read `session_id` from stdin instead |
-| `SWB_AGENT_ID` | `inbox` | none | `harness:host:pid:session_id` |
+| `SWB_BROKER_URL` | every client verb | none | `http://host:port` only: no path, no trailing `/`, no `https` |
+| `SWB_HOST` | `hook`, `whoami`, `doctor` | none | host part of the agent id |
+| `SWB_SESSION_PID` | `hook`, `whoami`, `doctor` | none | nonzero integer |
+| `SWB_PROC_START` | `hook`, `whoami`, `doctor` | none | also the check on `/v1/end` |
+| `SWB_HARNESS` | `hook`, `whoami`, `doctor` | hook: its argument | `claude`, `kimi`, `codex`, `junie`, `opencode` or `pi` |
+| `SWB_SESSION_ID` | `whoami`, `doctor` | none | hooks read `session_id` from stdin instead |
+| `SWB_AGENT_ID` | `inbox`, `send`, `ack`, `doctor` | none | `harness:host:pid:session_id`, as `register` returned it |
+| `SWB_METRICS_URL` | `doctor` | none | `http://host:port` of `SWB_METRICS_LISTEN`; unset skips the `/metrics` check |
 
 REST routes: `POST /v1/register`, `POST /v1/end`, `GET /v1/peers[?me=]`,
 `POST /v1/send`, `GET /v1/inbox?me=[&limit=&wait_seconds=]`, `POST /v1/ack`.
 MCP tools at `/mcp`: `register`, `peers`, `send`, `inbox`, `ack`. A `ticket`
-is `TIN-<digits>` or `none`; a body is at most 16 KiB. CLI exit codes: 0 ok,
-2 usage, 3 missing setting or broker error, 1 `serve` failure.
+is `TIN-<digits>` or `none`; a body is at most 16 KiB.
+
+CLI verbs: `serve`, `hook <harness> <event>`, `whoami`, `inbox`,
+`send <to> <ticket> [--ruling ID] [--operator-directed] [--in-reply-to ULID]
+[--thread ULID] [--msg-id ULID] < body`, `ack <msg_id>`, `peers`,
+`doctor [--register]` and `version`. `agentd` is planned for P2 and exits 3.
+`peers` never passes `me`, so it refreshes no lease. Exit codes: 0 ok,
+2 usage, 3 missing setting, broker error or a failed `doctor` check, 1
+`serve` failure; `hook` always exits 0.
