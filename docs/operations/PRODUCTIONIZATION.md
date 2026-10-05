@@ -1,15 +1,17 @@
 # Switchboard source and productionization lane
 
-Authority: SWB-R49–SWB-R54, LAB-TAKEOVER-20260930 and R-N13.
+Authority: SWB-R49–SWB-R55, LAB-TAKEOVER-20260930 and R-N13.
 Source/image ownership is here; lab delivers harness/Home Manager integration;
 blahaj owns custody, retained storage, routing and cluster rollout (SWB-R51).
 
-The approved production candidate is signed source
-`b5158729355e836a3a98ade90d7649690e7a6900`. Its immutable image, original
-PR inputs and publication readback are in
-[`approved-broker.json`](../releases/approved-broker.json). That is the exact
-SWB-R53 release; this source successor adds tooling and documentation without
-rebuilding or approving another image.
+The approved release is SWB-R55, v0.1.0: signed source
+`d8ebfdbf4e7c52ba43a05c2d5c3f4cca520c18e9` at
+`ghcr.io/xoxd-ai/agent-switchboard@sha256:c9170c7121821322376c16230f3b0eb5f10001aebfbce7e83c20c4afa5dd2236`.
+Its protected-input hashes and PR heads are in
+[`approved-broker.json`](../releases/approved-broker.json), whose
+`qualification` is `published-candidate-only` and `live_acceptance` false.
+SWB-R53 (`b5158729`, `b0633ecb`) is never published. Later main commits that
+leave the 27 protected inputs unchanged need no new approval.
 
 ## Source integration and upstream landing
 
@@ -30,22 +32,19 @@ rebuilding or approving another image.
    the authority; never compile on Neo. The immutable candidate already has
    Honey `just check`, `build`, `image` and rootless startup receipts. Retain
    those exact-source receipts when only non-runtime tooling changes.
-4. Upstream #2–#6 were still open on 2026-09-30, with main at
-   `2a11acb2988a88ff0c5a6b6a7040487c6d55df0b`. Their pinned heads are in
-   the release ledger; #6 is `ff3f6f0c85344ef6ff6529200239cceaf140aa18`.
-   R49 authorizes local integration while GF is in development. Protected
-   GitHub main still requires signed commits, a fork PR, merge queue and
-   `ci-ok`; local integration does not satisfy that gate. Prepare reviewable
-   source in the fork and refresh exact PR heads before a future governed
-   landing. Do not enqueue or dispatch GF as part of this lane.
+4. Open PR heads are in GitHub; the heads the SWB-R55 release was built
+   from (#13, #16, #18) stay pinned in the release ledger. R49 authorizes local integration while GF is in development, but
+   local integration does not satisfy the protected-main gate (signed
+   commits, a fork PR and `ci-ok`, landed by the queue or by an R-C228 admin
+   merge after sting validation). Do not enqueue or dispatch GF as part of
+   this lane.
 
-## Injectable clock and the next approved release (R-C262)
+## Injectable clock and the SWB-R55 release (R-C262)
 
-R-C262 (operator interview 2026-10-04, TIN-4655 comment `230af90b`) adds a
-clock seam to `swb-store`. It edits `crates/` and the root `BUILD.bazel`,
-which are protected inputs, so after it lands `just release-check` fails
-against SWB-R53 until a new approved release is recorded. SWB-R53 does not
-cover a different image.
+R-C262 (operator interview 2026-10-04, TIN-4655 comment `230af90b`) added a
+clock seam to `swb-store`. It edited `crates/` and the root `BUILD.bazel`,
+which are protected inputs, so it needed a new approved release: SWB-R55,
+recorded below.
 
 - **Production behaviour is unchanged.** `Store::open` and `Store::memory`
   use `SystemClock`, the truncated Unix seconds SQLite `unixepoch()` returns.
@@ -69,9 +68,7 @@ cover a different image.
 - **Sequencing with v0.1.0.** R-C268 (operator interview 2026-10-04,
   TIN-4655 comment `67ebf4f4`) supersedes R-C262's fallback: fix build
   determinism first, so two clean builds of one source give one digest,
-  then v0.1.0 ships the clock-seam image. SWB-R53 is never published. Until
-  the successor record lands, merging this change makes `release-check`
-  fail against SWB-R53, so it merges together with that record.
+  then v0.1.0 ships the clock-seam image. SWB-R53 is never published.
 - **Build determinism (R-C268).** SWB-R53 `b0633ecb` cannot be rebuilt:
   libsqlite3-sys compiles SQLite with `-g`, and gcc recorded the build
   script's sandbox directory (output-base hash plus sandbox counter) in the
@@ -153,16 +150,23 @@ cover a different image.
   the only image it can push is the SWB-R55 digest `sha256:c9170c71…`, and
   only if the tagged tree's Bazel build reproduces it. Publishing any other image needs a new
   ruling and a new approved release entry first.
-- Before the first tag: the `ghcr.io/xoxd-ai/agent-switchboard` package must
-  grant this repository's Actions write access, and the tinyland-nix runner
-  must reach ghcr.io. Neither has been exercised by this workflow yet.
+- The `v0.1.0` tag run of this workflow failed: at the time it required a
+  runner-supplied `TINYLAND_CI_BAZELISK_BIN` that GloriousFlywheel runners
+  did not provide. v0.1.0 was therefore published by hand under R-C312: two
+  clean Sting builds, `release-check --tag v0.1.0 --built-digest --oci-layout`,
+  `skopeo copy --preserve-digests` of the OCI layout, and a byte-identical
+  registry readback (GitHub release v0.1.0 records it). The flake-pinned
+  bazelisk change (#20) applies from the next tag. The package's Actions
+  write grant and the tinyland-nix runner's reach to ghcr.io are still
+  unexercised by this workflow, and the ledger's `publication_receipt` still
+  reads `PENDING`.
 
 ## Packaging, retention and shutdown boundaries
 
 The image is the Debian 13 distroless nonroot Linux/amd64 package declared in
 `MODULE.bazel` and `deploy/BUILD.bazel`. The runtime base and image are digest
 bound. Rootless `swb version` proved executable startup, not broker readiness
-or an authenticated node pull. SWB-R53 covers this one image only.
+or an authenticated node pull. SWB-R55 covers the one approved image only.
 
 SQLite uses WAL and FULL synchronization. `Store::open` prunes on startup;
 the broker repeats pruning hourly without requiring mailbox traffic. Acked
@@ -181,16 +185,17 @@ The existing service-proof source at `24c03ab9` passed 24 owned broker/store/
 CLI cases on Sting, and lab's managed hooks passed 18 cases at exit zero and
 under two seconds. That is useful development evidence. The tested CLI's
 GLIBC_2.39 environment is separate from the approved packaged image. Do not
-silently substitute that binary or its source for SWB-R53, or call owned
+silently substitute that binary or its source for the approved release, or call owned
 fixtures live harness enrollment or PVC pod-restart proof.
 
 ## Actual rollout prerequisites and exit receipts
 
-The reviewed cluster source is blahaj draft
-[#1731](https://github.com/xoxd-ai/blahaj/pull/1731) at
-`ffbaf3ac982524887e58b3a5896bc5251654a3a2`. It composes the exact R53
-image overlay with the custody inspector. TIN-5105 remains the custody owner
-lane. Its current CREATEONLY/suspended qualifier and exclusive commissioning
+The cluster source is staged in blahaj
+[#1793](https://github.com/xoxd-ai/blahaj/pull/1793) (merged 2026-10-03,
+replacing the closed #1629 and #1731) under `tofu/stacks/agent-switchboard`.
+It still pins the SWB-R53 digest `b0633ecb`, which is never published; it
+must move to the SWB-R55 digest before any apply. TIN-5105 remains the
+custody owner lane. Its current CREATEONLY/suspended qualifier and exclusive commissioning
 window are unresolved; no broker hostname or live deployment is issued.
 
 | Gate | Concrete next action and required evidence |
