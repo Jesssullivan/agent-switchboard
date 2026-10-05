@@ -158,8 +158,10 @@ recorded below.
   registry readback (GitHub release v0.1.0 records it). The flake-pinned
   bazelisk change (#20) applies from the next tag. The package's Actions
   write grant and the tinyland-nix runner's reach to ghcr.io are still
-  unexercised by this workflow, and the ledger's `publication_receipt` still
-  reads `PENDING`.
+  unexercised by this workflow. The ledger's `publication_receipt` records
+  the R-C312 manual push and its readback (TIN-4655 comment `828714be`); it
+  is a docs field, not a protected input, so editing it leaves release-check
+  unchanged.
 
 ## Packaging, retention and shutdown boundaries
 
