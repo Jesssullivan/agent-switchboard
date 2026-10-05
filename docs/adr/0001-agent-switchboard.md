@@ -77,7 +77,9 @@ registered once on the tailnet so that new harness instances spawn nothing.
 
 - **Stack:**
   - Rust (rules_rust + crate_universe, Bazel 9), MCP via `rmcp` Streamable HTTP;
-  - one binary, `swb serve | agentd | hook <harness> | whoami | inbox`;
+  - one binary: `swb serve | agentd | hook <harness> | whoami | inbox`, plus
+    the bash-seat verbs `send | ack | peers | doctor` (R-C275). `agentd` is
+    planned for P2 and exits 3 in v0.1.0;
   - `serve` exposes `:8080/mcp`, a REST twin `/v1/*` for hooks, and
     `:9090/metrics` inside the cluster.
 - **Storage:**
@@ -248,7 +250,10 @@ registered once on the tailnet so that new harness instances spawn nothing.
 ### Push
 
 - **v1a, everywhere including neo:** the UserPromptSubmit hook returns
-  `additionalContext` of the form "N unread from X (TIN-…) — `ag inbox`".
+  `additionalContext` naming the first unread sender and ticket. v0.1.0
+  says "At least one unread peer message from X (TIN-…) — use agents inbox
+  to read and acknowledge it"; it names neither a real command nor the
+  receiver's agent id.
 - **v1b:** `swb agentd` runs as a launchd agent on PZM **and neo** (SWB-R17)
   and as a systemd user unit on honey, sting and bumble.
   - It long-polls `/v1/notify?host=` and writes a one-line notice, never the
