@@ -139,7 +139,11 @@ cover a different image.
      `cc`/`gcc` resolves into `/nix/store`, and passes the approved `source`
      as `--embed_label` so the revision label matches the approved build;
   4. `bazelisk run //deploy:push` (digest only, `packages: write` token),
-     with the same approved `source` as `--embed_label`;
+     with the same approved `source` as `--embed_label`. Both Bazel steps use
+     the `release` devShell's flake.lock-pinned `bazelisk` and refuse one that
+     does not resolve into `/nix/store`; the former runner-supplied Bazelisk
+     custody step was removed (operator direction 2026-10-05, applies from
+     the release after v0.1.0);
   5. read the manifest back from ghcr.io by digest, verify digest and byte
      size with `release-check --registry-manifest`, and keep the report,
      manifest bytes and built digest as the `release-evidence-TAG` artifact.

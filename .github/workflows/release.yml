@@ -23,6 +23,9 @@ name: release
 #      image is a new publication that needs its own ruling, so nothing is
 #      pushed.
 #   3. `bazelisk run //deploy:push` uploads by digest only (no mutable tag).
+#      Both Bazel steps use the release devShell's flake.lock-pinned bazelisk
+#      and refuse one that does not resolve into /nix/store; no runner-supplied
+#      Bazelisk fact is consulted (operator direction 2026-10-05).
 #   4. The manifest is read back from ghcr.io by digest and checked with
 #      `release-check --registry-manifest` (digest and byte size).
 #   5. The report and raw manifest bytes are kept as a workflow artifact.
@@ -66,10 +69,6 @@ jobs:
       run:
         shell: nix develop .#release --max-jobs 1 --cores 2 --command bash -euo pipefail {0}
     steps:
-      - name: Validate trusted Bazelisk before checkout
-        id: bazelisk
-        uses: xoxd-ai/ci-templates/.github/actions/rust-bazel-binary-custody@ae836d8400d5784d74af4fecc020f225d1c2d08e # v5.1.1
-
       - name: Check out the tagged revision with full history
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -128,9 +127,16 @@ jobs:
       - name: Build the image digest and refuse anything unapproved
         env:
           TAG: ${{ github.ref_name }}
-          BAZELISK: ${{ steps.bazelisk.outputs.path }}
           APPROVED_SOURCE: ${{ steps.approved.outputs.source }}
         run: |
+          # Bazelisk is the release devShell's flake.lock-pinned package, not a
+          # runner-supplied binary (operator direction 2026-10-05). Refuse
+          # anything on PATH that does not resolve into /nix/store.
+          BAZELISK="$(command -v bazelisk)" || { echo "::error::bazelisk is not on the release devShell PATH"; exit 1; }
+          if [[ "$(readlink -f "$BAZELISK")" != /nix/store/* ]]; then
+            echo "::error::bazelisk resolves to $(readlink -f "$BAZELISK"), outside /nix/store"
+            exit 1
+          fi
           # R-C282: Bazel must use the host C toolchain, never a Nix
           # gcc-wrapper. The release devShell is mkShellNoCC; refuse here if a
           # Nix compiler still reaches CC/CXX or PATH, because rules_cc would
@@ -158,10 +164,14 @@ jobs:
 
       - name: Push the approved image by digest
         env:
-          BAZELISK: ${{ steps.bazelisk.outputs.path }}
           APPROVED_SOURCE: ${{ steps.approved.outputs.source }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          BAZELISK="$(command -v bazelisk)" || { echo "::error::bazelisk is not on the release devShell PATH"; exit 1; }
+          if [[ "$(readlink -f "$BAZELISK")" != /nix/store/* ]]; then
+            echo "::error::bazelisk resolves to $(readlink -f "$BAZELISK"), outside /nix/store"
+            exit 1
+          fi
           export DOCKER_CONFIG="$RUNNER_TEMP/docker-config"
           install -d -m 0700 "$DOCKER_CONFIG"
           trap 'rm -f "$DOCKER_CONFIG/config.json"' EXIT
