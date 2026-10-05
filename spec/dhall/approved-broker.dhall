@@ -49,9 +49,9 @@ in    { file_sha256 =
           , { mapKey = "18", mapValue = "c08ce908974ded2b9917305252f5c18260babe52" }
           ]
       , publication_receipt =
-          "PENDING: v0.1.0 release workflow registry readback; ratified R-C304, TIN-4655 comment dcb5b687-dd58-4577-b609-dcb20251941b"
+          "PUBLISHED 2026-10-05T02:02Z by manual push under R-C312 (TIN-4655 comment dbd8d5b7-eec9-4182-8951-b21c948cdf6c), not the release workflow: release-check --tag v0.1.0 --built-digest --oci-layout passed on the verified Sting double-build OCI layout, then skopeo copy --preserve-digests to ghcr.io/xoxd-ai/agent-switchboard:v0.1.0; registry readback digest sha256:c9170c7121821322376c16230f3b0eb5f10001aebfbce7e83c20c4afa5dd2236, 4579 bytes, byte-identical to the approved manifest; receipt TIN-4655 comment 828714be-254f-40dc-8cd1-e6e0f109d1f8; release https://github.com/xoxd-ai/agent-switchboard/releases/tag/v0.1.0 (published 2026-10-05T02:02:38Z)"
       , qualification = "published-candidate-only"
-      , rulings = [ "SWB-R55", "R-C304", "R-N13" ]
+      , rulings = [ "SWB-R55", "R-C304", "R-C312", "R-N13" ]
       , schema = "swb.approved-release.v1"
       , source = "d8ebfdbf4e7c52ba43a05c2d5c3f4cca520c18e9"
       , source_inputs =
