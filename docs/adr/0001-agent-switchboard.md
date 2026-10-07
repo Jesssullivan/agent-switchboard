@@ -535,6 +535,14 @@ Mimir series, the lookup recipes, the outbox and the L0–L5 phases — is
   merge commit, so [`release-signers.asc`](../releases/release-signers.asc)
   holds GitHub's merge key `B5690EEEBB952194` beside the operator release
   key. SWB-R53 is never published.
+- **SWB-R57 channel release, v0.2.0 (2026-10-07):** R-C411 approves only
+  `26f38b9ac4652866ea30d6553bac2374f7494e4d` (the #23 merge, SWB-R56
+  `swb channel`) at
+  `sha256:66e439667c25791002e6af86d3bf088c5cbe5b35021874437fd9e1b202284555`,
+  published through the release workflow. Like SWB-R55, the source is a
+  GitHub merge commit signed by `B5690EEEBB952194`. SWB-R55 stays the v0.1.0
+  record; it does not authorize this image, and this one does not authorize
+  any other.
 - **SWB-R54 state custody (2026-09-27):** TIN-5105 is blahaj-operator-owned
   dedicated OpenTofu state commissioning. Backend, separate identity/carrier,
   backup, lock contention/release and scratch restore receipts must precede
@@ -766,6 +774,7 @@ receipts (TIN-4655 comments `6274ecbd` and `fd195b08`) and their PRs.
 | SWB-R54 | 2026-09-27 | TIN-4655 comment `f76d40d1-ab11-48e4-b13d-e17a424e1d05`; child TIN-5105 | Blahaj operator commissions dedicated state custody; rollout held for backend, backup, lock, restore, image, namespace and Secret gates. |
 | SWB-R55 | 2026-10-04 | R-C304 (operator interview, TIN-4655 comment `dcb5b687`); R-C262, R-C268, R-C274 | Approve the clock-seam release: signed source d8ebfdbf (GitHub merge key B5690EEEBB952194) at digest `sha256:c9170c71…` (4579-byte manifest), from two matching clean Sting builds. Recorded in `approved-broker.json`; v0.1.0 publishes only this digest. SWB-R53 is never published. |
 | SWB-R56 | 2026-10-07 | R-C389 (operator interview, Linear TIN-5770 comment `d00ba5ef`) | "Adopt channels now": swb gains a Claude Code channel emitter and lab's managed claude wrapper passes the launch flags, with no spike gate. Channels are the Claude push path (v1c); agentd's socket notice is no longer the plan for Claude; SWB-R03 and SWB-R17 amended; SWB-R20 unchanged. |
+| SWB-R57 | 2026-10-07 | R-C411 (operator interview, Linear TIN-5770 comment `cdeb84f6`): "Ratify, release workflow (Recommended)" | Approve the v0.2.0 channel release: signed source 26f38b9a (GitHub merge key B5690EEEBB952194) at digest `sha256:66e43966…` (4579-byte manifest), from two matching clean Sting builds plus a release-workflow-equivalent rebuild. Recorded in `approved-broker.json`; the signed v0.2.0 tag publishes only this digest, through `release.yml`. |
 
 Estate rulings this design depends on:
 

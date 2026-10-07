@@ -1,12 +1,14 @@
 # Switchboard source and productionization lane
 
-Authority: SWB-R49–SWB-R55, LAB-TAKEOVER-20260930 and R-N13.
+Authority: SWB-R49–SWB-R57, LAB-TAKEOVER-20260930 and R-N13.
 Source/image ownership is here; lab delivers harness/Home Manager integration;
 blahaj owns custody, retained storage, routing and cluster rollout (SWB-R51).
 
-The approved release is SWB-R55, v0.1.0: signed source
-`d8ebfdbf4e7c52ba43a05c2d5c3f4cca520c18e9` at
-`ghcr.io/xoxd-ai/agent-switchboard@sha256:c9170c7121821322376c16230f3b0eb5f10001aebfbce7e83c20c4afa5dd2236`.
+The approved release is SWB-R57, v0.2.0 (R-C411): signed source
+`26f38b9ac4652866ea30d6553bac2374f7494e4d` at
+`ghcr.io/xoxd-ai/agent-switchboard@sha256:66e439667c25791002e6af86d3bf088c5cbe5b35021874437fd9e1b202284555`.
+The previous release, SWB-R55 v0.1.0 (`d8ebfdbf` at `sha256:c9170c71…`),
+stays published; its record is in git history.
 Its protected-input hashes and PR heads are in
 [`approved-broker.json`](../releases/approved-broker.json), whose
 `qualification` is `published-candidate-only` and `live_acceptance` false.
@@ -102,6 +104,14 @@ recorded below.
   GitHub merge commit signed by GitHub's key `B5690EEEBB952194`, so
   `docs/releases/release-signers.asc` holds that key next to the operator
   release key `161895136D2E5C29…`.
+- **SWB-R57 recorded (R-C411).** The operator ratified the v0.2.0 channel
+  release (TIN-5770 comment `cdeb84f6`) at `sha256:66e43966…`, 4579-byte
+  manifest, from two clean Sting builds of main `26f38b9a` with
+  `--embed_label=26f38b9a…`, confirmed by a third rebuild that mirrors
+  `release.yml`. The protected-input map adds `crates/swb/src/channel.rs`.
+  The tag sits on the merge of this record, not on `26f38b9a`: the workflow
+  reads the record from the tagged tree and labels the image with its
+  `source`.
 
 ## Secrets scan, CODEOWNERS and tag-triggered release
 
@@ -147,7 +157,7 @@ recorded below.
 - `just release-check-tag TAG [MAIN_REF]` runs the step 2 gate locally.
 - The workflow writes evidence only. `publication_authorized` and
   `live_acceptance` stay false; it never edits `approved-broker.json`. Today
-  the only image it can push is the SWB-R55 digest `sha256:c9170c71…`, and
+  the only image it can push is the SWB-R57 digest `sha256:66e43966…`, and
   only if the tagged tree's Bazel build reproduces it. Publishing any other image needs a new
   ruling and a new approved release entry first.
 - The `v0.1.0` tag run of this workflow failed: at the time it required a
