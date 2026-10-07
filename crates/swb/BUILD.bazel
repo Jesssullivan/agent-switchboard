@@ -5,7 +5,10 @@ package(default_visibility = ["//visibility:public"])
 
 rust_binary(
     name = "swb",
-    srcs = ["src/main.rs"],
+    srcs = [
+        "src/channel.rs",
+        "src/main.rs",
+    ],
     aliases = aliases(),
     edition = crate_edition(),
     # R-C268: link without debug info. libsqlite3-sys compiles SQLite through
@@ -43,7 +46,10 @@ rust_test(
 rust_binary(
     name = "swb_test_clock",
     testonly = True,
-    srcs = ["src/main.rs"],
+    srcs = [
+        "src/channel.rs",
+        "src/main.rs",
+    ],
     aliases = aliases(),
     crate_features = ["test-clock"],
     crate_name = "swb",

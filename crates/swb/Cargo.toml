@@ -1,6 +1,6 @@
 [package]
 name = "swb"
-description = "agent-switchboard: the single swb binary (serve | agentd | hook | whoami | inbox) - P1a stub."
+description = "agent-switchboard: the single swb binary (serve, hook, whoami, inbox, send, ack, peers, doctor, channel; agentd planned)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

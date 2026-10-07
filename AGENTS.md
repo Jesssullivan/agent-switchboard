@@ -2,12 +2,13 @@
 
 `agent-switchboard` (binary `swb`) is the tailnet-only broker for cross-harness
 agent session discovery, threaded dialog and advisory task claims/handoff. It
-also holds the per-host push adapter (`swb agentd`) and the hook client
-(`swb hook`). Linear: TIN-4655.
+also holds the Claude Code channel emitter (`swb channel`, SWB-R56), the
+planned per-host adapter (`swb agentd`) and the hook client (`swb hook`).
+Linear: TIN-4655.
 
 **Read first:** [ADR-0001](docs/adr/0001-agent-switchboard.md), the broker
-design. Its Rulings table holds `SWB-R01`..`SWB-R23` and the source/release
-rulings `SWB-R49`..`SWB-R55`; `SWB-R24` is recorded under its History.
+design. Its Rulings table holds `SWB-R01`..`SWB-R23`, the source/release
+rulings `SWB-R49`..`SWB-R55` and the Claude channel ruling `SWB-R56`; `SWB-R24` is recorded under its History.
 
 **Read second:** [ADR-0002](docs/adr/0002-lgtm-plane.md), the LGTM plane and
 the phase order. Its Rulings table holds `SWB-R25`..`SWB-R48`.
@@ -132,6 +133,10 @@ the full text. ADR-0002 carries the phase scope and host order
 - Claims are advisory and always succeed. The only refusal is a second
   `exclusive` claim, which returns `held_by` (SWB-R16).
 - Hooks time out after 2 s and always exit 0 (SWB-R10).
+- `swb channel` bounds every broker request at 1.5 s, retries quietly with
+  backoff and never acknowledges on its own. Its events mark content as
+  teammate information with `authority` always `peer`, and it never
+  declares the permission-relay capability (SWB-R56, SWB-R14).
 - Linear access is read plus handoff-receipt comments only. The broker never
   moves state or edits descriptions (SWB-R15).
 - Retention is 7 d acked and 30 d unacked; the TTL is 72 h, at most 14 d
