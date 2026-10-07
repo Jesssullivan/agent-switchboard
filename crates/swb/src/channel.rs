@@ -118,7 +118,12 @@ pub(crate) fn resolve_me(lookup: Lookup) -> Result<Option<String>, String> {
 
 fn registered_row(lookup: Lookup) -> Result<Option<String>, String> {
     let host = need(lookup, "SWB_HOST")?;
-    let pid = need(lookup, "SWB_SESSION_PID")?;
+    // The broker mints the id from the numeric pid, so compare that form:
+    // "+0077" in the environment is the row ending in ":77:".
+    let pid = need(lookup, "SWB_SESSION_PID")?
+        .parse::<u32>()
+        .map_err(|_| "SWB_SESSION_PID is not a positive integer")?
+        .to_string();
     let proc_start = need(lookup, "SWB_PROC_START")?;
     let harness = lookup("SWB_HARNESS").filter(|v| !v.is_empty());
     let listing = call_with(lookup, "GET", "/v1/peers", None)?;
@@ -810,7 +815,7 @@ mod tests {
         let lookup = lookup_of(&[
             ("SWB_BROKER_URL", &url),
             ("SWB_HOST", "neo"),
-            ("SWB_SESSION_PID", "77"),
+            ("SWB_SESSION_PID", "+0077"),
             ("SWB_PROC_START", "p1"),
             ("SWB_HARNESS", "claude"),
         ]);
