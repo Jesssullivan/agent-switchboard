@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Read-only source/OCI evidence check for the approved broker (SWB-R55).
+"""Read-only source/OCI evidence check for the approved broker (SWB-R57).
 
 No network, build, publication, activation or process-control action is taken.
 Supplied registry bytes are evidence from the caller, not a fresh pull proof.
 With --tag the check also binds a signed annotated release tag to HEAD (and,
 with --main-ref, to the protected main history); with --built-digest it refuses
 any locally built image whose digest is not the approved immutable digest, so
-the release workflow can never publish an image SWB-R55 did not approve.
+the release workflow can never publish an image the approved record does not name.
 With --tag-signer the tag must also be signed by that primary key: the release
 key ring carries GitHub's merge key for the source commit, never for tags.
 """
@@ -174,7 +174,7 @@ def main():
     if (args.main_ref or args.tag_signer) and not args.tag:
         parser.error("--main-ref and --tag-signer require --tag")
     repo = Path(__file__).resolve().parents[1]
-    report = {"rulings": ["SWB-R55", "SWB-R49", "R-N13"], "live_acceptance": False, "fresh_registry_pull": False, "publication_authorized": False}
+    report = {"rulings": ["SWB-R57", "SWB-R49", "R-N13"], "live_acceptance": False, "fresh_registry_pull": False, "publication_authorized": False}
     try:
         release = json.loads((repo / "docs/releases/approved-broker.json").read_text())
         report.update(check_source(repo, release), image=release["image"])
