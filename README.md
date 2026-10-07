@@ -14,9 +14,13 @@ per-session plumbing.
 - **Messages** are teammate information. The broker stamps
   `authority: peer` on every message and never emits `operator`.
 - **Push:**
-  - a UserPromptSubmit notice everywhere;
-  - `swb agentd` (planned for P2), which writes body-less notices to
-    verified Claude sockets.
+  - a UserPromptSubmit notice everywhere, naming the receiver's agent id
+    and the `swb inbox` / `swb ack` commands;
+  - for Claude Code, `swb channel` (SWB-R56, v0.2.0): a stdio MCP server
+    that Claude Code spawns and that pushes each new message into the
+    running session as a channel event, with `reply`, `ack` and `inbox`
+    tools;
+  - `swb agentd` (planned for P2) is no longer the Claude push path.
 
 Design and rulings: [docs/adr/0001-agent-switchboard.md](docs/adr/0001-agent-switchboard.md).
 The LGTM plane (the broker writes through to Tempo, Loki and Mimir; LGTM
@@ -124,7 +128,8 @@ SWB_AGENT_ID="$b" "$swb" ack <msg_id>
 | `SWB_PROC_START` | `hook`, `whoami`, `doctor` | none | also the check on `/v1/end` |
 | `SWB_HARNESS` | `hook`, `whoami`, `doctor` | hook: its argument | `claude`, `kimi`, `codex`, `junie`, `opencode` or `pi` |
 | `SWB_SESSION_ID` | `whoami`, `doctor` | none | hooks read `session_id` from stdin instead |
-| `SWB_AGENT_ID` | `inbox`, `send`, `ack`, `doctor` | none | `harness:host:pid:session_id`, as `register` returned it |
+| `SWB_AGENT_ID` | `inbox`, `send`, `ack`, `doctor`, `channel` | none | `harness:host:pid:session_id`, as `register` returned it; `channel` falls back to the launcher identity |
+| `SWB_CHANNEL_POLL_SECONDS` | `channel` | `5` | inbox poll interval, clamped to 2–60 |
 | `SWB_METRICS_URL` | `doctor` | none | `http://host:port` of `SWB_METRICS_LISTEN`; unset skips the `/metrics` check |
 
 REST routes: `POST /v1/register`, `POST /v1/end`, `GET /v1/peers[?me=]`,
@@ -135,7 +140,22 @@ is `TIN-<digits>` or `none`; a body is at most 16 KiB.
 CLI verbs: `serve`, `hook <harness> <event>`, `whoami`, `inbox`,
 `send <to> <ticket> [--ruling ID] [--operator-directed] [--in-reply-to ULID]
 [--thread ULID] [--msg-id ULID] < body`, `ack <msg_id>`, `peers`,
-`doctor [--register]` and `version`. `agentd` is planned for P2 and exits 3.
+`doctor [--register]`, `channel` and `version`. `agentd` is planned for P2 and exits 3.
 `peers` never passes `me`, so it refreshes no lease. Exit codes: 0 ok,
 2 usage, 3 missing setting, broker error or a failed `doctor` check, 1
-`serve` failure; `hook` always exits 0.
+`serve` failure; `hook` always exits 0, and `channel` exits 0 when Claude
+Code closes its stdin.
+
+### Claude Code channel
+
+`swb channel` is a stdio MCP server that declares the `claude/channel`
+capability (ADR-0001 → Push, v1c). Register it as a plain MCP server, for
+example under the name `swb-channel`, with the command `swb` and the
+argument `channel`. It reads the session's `SWB_*` environment, so the
+session must start through a lab launcher (R-C273). During Claude Code's
+channels research preview a custom server loads only with
+`claude --dangerously-load-development-channels server:swb-channel`, which
+shows a confirmation at startup. Events arrive as
+`<channel source="swb-channel" from="…" ticket="…" msg_id="…" authority="peer">`.
+Answer with the `reply` tool or acknowledge with `ack`; the channel never
+acknowledges on its own.

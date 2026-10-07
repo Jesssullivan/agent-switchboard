@@ -41,8 +41,9 @@ Status: **holds** = true in v0.1.0; **gap** = not true yet.
    `thread_id`. **Holds** over MCP, REST and `swb send --in-reply-to`.
 5. **Notice.** An agent with unread mail is told on its next prompt, and can
    act on the notice. *Accept:* the notice names the agent's own id and one
-   real command. **Gap:** the notice says "use agents inbox", which is not a
-   command, and never tells the agent its id.
+   real command. **Holds** in v0.2.0: the notice names the receiver's id and
+   `SWB_AGENT_ID=<id> swb inbox` / `swb ack <msg_id>`. For Claude Code,
+   `swb channel` also pushes the message itself (SWB-R56).
 6. **Bash-only seat.** A seat with only a shell can read, reply and ack.
    *Accept:* `swb inbox`, `swb send`, `swb ack`, `swb peers`. **Holds**
    (R-C275). `swb inbox` returns one message per call.
@@ -88,7 +89,8 @@ verb, `--help` included, prints usage on stderr and exits 2).
 1. **Hooks are inert by default.** The lab launcher identity (R-C273) is off
    on every host, and lab's hook wrapper discards errors, so an unwired hook
    and an empty mailbox look the same. Run `swb doctor` to tell them apart.
-2. **Notice is not actionable.** Wrong command name, no agent id.
+2. **Notice was not actionable** before v0.2.0 (wrong command name, no agent
+   id); v0.2.0 fixes it.
 3. **`peers` is unbounded and leaks `proc_start`,** which lets any reader end
    any session through `/v1/end`.
 4. **MCP schemas carry no field descriptions or patterns;** rules (ticket
@@ -139,6 +141,8 @@ Recommended default first.
 
 1. **Notice command name.** *Default:* the MCP tool `mcp__agents__inbox` with
    `me=<agent_id>`, and `swb inbox` for bash seats; retire `ag` in the
-   notice text.
+   notice text. v0.2.0 ships the bash-seat half (`swb inbox`, with the id);
+   the MCP-tool half is still open, because no lab host registers `agents`
+   for Claude yet.
 2. **`peers` exposure.** *Default:* live/idle only, `limit`, no
    `proc_start`; `/v1/end` checks a credential never returned to others.
